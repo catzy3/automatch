@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+.Python
+
+# PyInstaller build artifacts
+build/
+dist/
+
+# Heavy runtime assets (rebuilt/refetched)
+media_cache/
+recordings/
+models/
+
+# Runtime state
+last_session.json
+automatch_last_session.json
+
+# Logs
+*.log
+
+# Secrets
+pexels_config.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

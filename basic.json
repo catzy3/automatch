@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "paths": {
+    "audio": "E:/РАбочий Стол/dj set teppich/romantic trance master offfff.mp3",
+    "media": "E:/pinterest shit",
+    "output": "C:\\Users\\divin\\Code\\analogvfx\\recordings\\automatch.mp4"
+  },
+  "settings": {
+    "duration": 18.312000274658203,
+    "fps": 60,
+    "output_w": 1280,
+    "output_h": 720,
+    "cuts_per_beat": 1.0709999799728394,
+    "beat_flash_ms": 215,
+    "audio_offset_sec": 56.08100128173828,
+    "crf": 15,
+    "palette": "auto",
+    "palette_strength": 0.30000001192092896,
+    "crossfade_ms": 256,
+    "seed": 749180096,
+    "clip_mode": "random",
+    "beat_remap_strength": 0.7300000190734863,
+    "cam_stabilize": true,
+    "random_clip_starts": true,
+    "dither_params": {
+      "dither_levels": 20.0,
+      "dither_grid_size": 11.0,
+      "dither_osc_a_freq": 30.899999618530273,
+      "dither_osc_b_freq": 16.3700008392334,
+      "dither_osc_a_speed": 1.399999976158142,
+      "dither_osc_b_speed": 3.0,
+      "dither_trace_thickness": 0.3720000088214874,
+      "dither_jitter": 1.0,
+      "dither_chromatic": 0.8100000023841858,
+      "dither_mix_mode": 2.0,
+      "dither_color_mode": 1.0,
+      "dither_polarity": 1.0,
+      "dither_color_a_r": 0.0196078431372549,
+      "dither_color_a_g": 0.14901960784313725,
+      "dither_color_a_b": 0.09803921568627451,
+      "dither_color_b_r": 0.5490196078431373,
+      "dither_color_b_g": 1.0,
+      "dither_color_b_b": 0.4470588235294118
+    },
+    "effect_overrides": {
+      "luma_key": {
+        "state": "random",
+        "mix": 0.550000011920929,
+        "random_mix": true
+      },
+      "duotone": {
+        "state": "random",
+        "mix": 0.4699999988079071,
+        "random_mix": true
+      },
+      "dual_tone": {
+        "state": "random",
+        "mix": 0.6399999856948853,
+        "random_mix": true
+      },
+      "heavy_grain": {
+        "state": "random",
+        "mix": 0.6299999952316284,
+        "random_mix": true
+      },
+      "motion_trails": {
+        "state": "random",
+        "mix": 0.47999998927116394,
+        "random_mix": true
+      },
+      "wave_warp": {
+        "state": "random",
+        "mix": 0.41999998688697815,
+        "random_mix": true
+      },
+      "pixel_sort": {
+        "state": "random",
+        "mix": 0.4399999976158142,
+        "random_mix": true
+      },
+      "datamosh": {
+        "state": "random",
+        "mix": 0.4399999976158142,
+        "random_mix": true
+      },
+      "vhs": {
+        "state": "random",
+        "mix": 0.6800000071525574,
+        "random_mix": true
+      },
+      "ascii_mosaic": {
+        "state": "random",
+        "mix": 0.46000000834465027,
+        "random_mix": true
+      },
+      "crt": {
+        "state": "random",
+        "mix": 0.8199999928474426,
+        "random_mix": true
+      },
+      "dither": {
+        "state": "random",
+        "mix": 0.44999998807907104,
+        "random_mix": true
+      }
+    },
+    "text_cards": {
+      "enabled": false,
+      "probability": 0.4000000059604645,
+      "duration": 0.800000011920929,
+      "vibe": "",
+      "lines": [],
+      "color": [
+        255,
+        255,
+        255
+      ],
+      "bg_color": [
+        0,
+        0,
+        0
+      ],
+      "bg_alpha": 1.0,
+      "font_scale": 1.0,
+      "align": "center"
+    },
+    "blob_track": {
+      "enabled": true,
+      "hue_center": 120,
+      "hue_range": 30,
+      "min_val": 80,
+      "min_sat": 50,
+      "min_size": 800,
+      "max_blobs": 3,
+      "show_overlay": true,
+      "bracket_color": [
+        80,
+        255,
+        140
+      ],
+      "bracket_thickness": 2,
+      "show_labels": true,
+      "show_centroid": true,
+      "show_data_line": true,
+      "zoom_to_blob": true
+    }
+  },
+  "fx_state": {
+    "luma_key": "random",
+    "duotone": "random",
+    "dual_tone": "random",
+    "heavy_grain": "random",
+    "motion_trails": "random",
+    "wave_warp": "random",
+    "pixel_sort": "random",
+    "datamosh": "random",
+    "vhs": "random",
+    "ascii_mosaic": "random",
+    "crt": "random",
+    "dither": "random"
+  }
+}

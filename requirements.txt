@@ -1,0 +1,15 @@
+opencv-python>=4.8
+moderngl>=5.10
+moderngl-window>=2.4
+glfw>=2.6
+SpoutGL>=0.0.6
+dearpygui>=1.10
+numpy>=1.24
+pygrabber>=0.2
+imageio-ffmpeg>=0.4
+mediapipe>=0.10  ; python_version < "3.13"
+sounddevice>=0.4
+onnxruntime>=1.16  ; optional — required for depth estimation
+
+
+

@@ -1,0 +1,34 @@
+# shi o kiku  //  alfa 1.0
+# ──────────────────────────────────────────────────────────────────────────────
+# Core requirements for a working build.
+# Install with:  pip install -r requirements_build.txt
+#
+# Optional extras (install separately if you need them):
+#   pip install sounddevice>=0.4        # audio-reactive modulation
+#   pip install onnxruntime>=1.16       # depth estimation
+#   pip install mediapipe>=0.10         # hand tracking (Python ≤ 3.12)
+#   pip install SpoutGL>=0.0.6          # Spout output (needs Spout server)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# GL / rendering
+moderngl>=5.10
+glfw>=2.6
+
+# GUI
+dearpygui>=1.10
+
+# Computer vision
+opencv-python>=4.8
+numpy>=1.24
+
+# Video encoding
+imageio-ffmpeg>=0.4
+
+# Image processing (ASCII atlas, palette generation)
+Pillow>=9.0
+
+# HTTP (Pexels downloader)
+requests>=2.28
+
+# PyInstaller (build only)
+pyinstaller>=6.0
