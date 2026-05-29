@@ -123,10 +123,10 @@ float bayer8(ivec2 p) {
     int bayer2 = (lo.y << 1) | lo.x;
     // bayer2 → {0,2,3,1} / 4
     float b2;
-    if      (bayer2 == 0) b2 = 0.0/4.0;
-    else if (bayer2 == 1) b2 = 3.0/4.0;
-    else if (bayer2 == 2) b2 = 2.0/4.0;
-    else                  b2 = 1.0/4.0;
+    if      (bayer2 == 0) b2 = 0.0/4.0;   // M2[0][0] = 0
+    else if (bayer2 == 1) b2 = 2.0/4.0;   // M2[0][1] = 2
+    else if (bayer2 == 2) b2 = 3.0/4.0;   // M2[1][0] = 3
+    else                  b2 = 1.0/4.0;   // M2[1][1] = 1
     return (bayer4(hi) + b2 / 16.0) * (16.0 / 17.0) + 0.5/64.0;
 }
 
