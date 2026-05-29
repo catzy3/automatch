@@ -20,6 +20,7 @@ from copy import deepcopy
 from dataclasses import replace as dataclass_replace
 from automatch import (
     AutoEditSettings, PALETTES, USER_EFFECTS, EFFECT_LABELS_RU,
+    USER_EFFECTS_NO_MIX,
     TextCardSettings, VIBE_TEXTS, CLIP_MODES,
     BlobTrackSettings,
     audio_duration,
@@ -506,7 +507,6 @@ def _refresh_side_panel():
             dpg.configure_item(dith_tag, show=False)
         return
 
-    from automatch import USER_EFFECTS_NO_MIX
     state = _FX_STATE.get(kind, "off")
     label_ru = EFFECT_LABELS_RU.get(kind, kind)
     state_color = {
@@ -628,6 +628,21 @@ def _apply_blob_track(d: dict) -> None:
     except ValueError:
         idx = 0
     _set("bt_tracker_mode_combo", _BLOB_TRACKER_MODES[idx])
+    # ── visual extras ──────────────────────────────────────────────────
+    _set("bt_crosshair",  bool(d.get("show_crosshair", False)))
+    _set("bt_leader",     bool(d.get("show_leader",    False)))
+    _set("bt_trails",     bool(d.get("show_trails",    False)))
+    _set("bt_trail_len",  int(d.get("trail_length",       12)))
+    _set("bt_network",    bool(d.get("show_network",   False)))
+    _set("bt_label_prefix", str(d.get("label_prefix", "TGT")))
+    _set("bt_extra_data", bool(d.get("show_extra_data", False)))
+    _set("bt_timestamp",  bool(d.get("show_timestamp", False)))
+    bs = int(d.get("bracket_style", 0))
+    bs = max(0, min(len(_BLOB_BRACKET_STYLES) - 1, bs))
+    _set("bt_bracket_style_combo", _BLOB_BRACKET_STYLES[bs])
+    tf = int(d.get("timestamp_format", 0))
+    tf = max(0, min(len(_BLOB_TS_FORMATS) - 1, tf))
+    _set("bt_ts_format_combo", _BLOB_TS_FORMATS[tf])
 
 
 def _collect_psort_params() -> dict:
@@ -1685,6 +1700,20 @@ def _collect_blob_track() -> BlobTrackSettings:
         tm_idx = 0
     tracker_mode = _BLOB_TRACKER_KEYS[tm_idx]
 
+    # bracket marker style (display label → index)
+    bs_label = _g("bt_bracket_style_combo", _BLOB_BRACKET_STYLES[0])
+    try:
+        bracket_style = _BLOB_BRACKET_STYLES.index(bs_label)
+    except ValueError:
+        bracket_style = 0
+
+    # HUD timestamp format (display label → index)
+    ts_label = _g("bt_ts_format_combo", _BLOB_TS_FORMATS[0])
+    try:
+        timestamp_format = _BLOB_TS_FORMATS.index(ts_label)
+    except ValueError:
+        timestamp_format = 0
+
     return BlobTrackSettings(
         enabled           = bool(_g("bt_enabled", False)),
         tracker_mode      = tracker_mode,
@@ -1701,6 +1730,17 @@ def _collect_blob_track() -> BlobTrackSettings:
         show_centroid     = bool(_g("bt_centroid", True)),
         show_data_line    = bool(_g("bt_dataline", True)),
         zoom_to_blob      = bool(_g("bt_zoom",    False)),
+        # ── visual extras ──────────────────────────────────────────────
+        bracket_style     = bracket_style,
+        show_crosshair    = bool(_g("bt_crosshair", False)),
+        show_leader       = bool(_g("bt_leader",    False)),
+        show_trails       = bool(_g("bt_trails",    False)),
+        trail_length      = int(_g("bt_trail_len",     12)),
+        show_network      = bool(_g("bt_network",   False)),
+        label_prefix      = str(_g("bt_label_prefix", "TGT")),
+        show_extra_data   = bool(_g("bt_extra_data", False)),
+        show_timestamp    = bool(_g("bt_timestamp", False)),
+        timestamp_format  = timestamp_format,
     )
 
 
@@ -2662,6 +2702,15 @@ _BLOB_TRACKER_MODES = (
 )
 _BLOB_TRACKER_KEYS = ("hsv", "csrt", "kcf", "mosse")
 
+# Bracket marker styles (index → BlobTrackSettings.bracket_style)
+_BLOB_BRACKET_STYLES = (
+    "Углы (скобки)", "Прямоугольник", "Круг-ретикль", "Пунктир",
+)
+# HUD timestamp formats (index → BlobTrackSettings.timestamp_format)
+_BLOB_TS_FORMATS = (
+    "Дата + время", "Только время", "Только дата", "Счётчик кадров",
+)
+
 
 def _build_blob_section():
     with dpg.collapsing_header(label="  Blob Tracking",
@@ -2732,6 +2781,46 @@ def _build_blob_section():
                 callback=lambda: dpg.set_value("bt_col", [255,180,40,255]))
             dpg.add_button(label="White", width=80,
                 callback=lambda: dpg.set_value("bt_col", [255,255,255,255]))
+
+        # ── visual extras: lines / markers / labels / HUD ──────────────
+        dpg.add_spacer(height=8)
+        dpg.add_text("ЛИНИИ И МАРКЕРЫ", color=_GL_DIM)
+        dpg.add_combo(items=list(_BLOB_BRACKET_STYLES),
+                      default_value=_BLOB_BRACKET_STYLES[0],
+                      tag="bt_bracket_style_combo",
+                      label="Стиль рамки", width=320)
+        with dpg.group(horizontal=True):
+            dpg.add_checkbox(label="Полноэкранный прицел", tag="bt_crosshair",
+                             default_value=False)
+            dpg.add_spacer(width=8)
+            dpg.add_checkbox(label="Линия-выноска", tag="bt_leader",
+                             default_value=False)
+        with dpg.group(horizontal=True):
+            dpg.add_checkbox(label="Трейлы движения", tag="bt_trails",
+                             default_value=False)
+            dpg.add_spacer(width=8)
+            dpg.add_slider_int(label="Длина трейла", tag="bt_trail_len",
+                               default_value=12, min_value=2, max_value=60,
+                               width=160)
+        dpg.add_checkbox(label="Сеть-связи между блобами", tag="bt_network",
+                         default_value=False)
+
+        dpg.add_spacer(height=8)
+        dpg.add_text("МЕТКИ И ДАТА", color=_GL_DIM)
+        with dpg.group(horizontal=True):
+            dpg.add_input_text(label="Префикс метки", tag="bt_label_prefix",
+                               default_value="TGT", width=160)
+            dpg.add_spacer(width=8)
+            dpg.add_checkbox(label="Доп. данные в строке", tag="bt_extra_data",
+                             default_value=False)
+        with dpg.group(horizontal=True):
+            dpg.add_checkbox(label="HUD-таймстамп", tag="bt_timestamp",
+                             default_value=False)
+            dpg.add_spacer(width=8)
+            dpg.add_combo(items=list(_BLOB_TS_FORMATS),
+                          default_value=_BLOB_TS_FORMATS[0],
+                          tag="bt_ts_format_combo",
+                          label="Формат", width=200)
 
 
 # ── themed strip helpers (GL1TCH header + footer) ───────────────────────────

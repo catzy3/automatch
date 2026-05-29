@@ -127,6 +127,17 @@ class BlobTrackSettings:
     show_centroid:    bool  = True
     show_data_line:   bool  = True
     zoom_to_blob:     bool  = False
+    # ── visual extras (all opt-in; defaults reproduce the classic look) ──
+    bracket_style:    int   = 0      # 0=corners 1=rectangle 2=reticle 3=dashed
+    show_crosshair:   bool  = False  # full-frame crosshair through each centroid
+    show_leader:      bool  = False  # diagonal leader line from bracket to label
+    show_trails:      bool  = False  # fading motion trail along blob path
+    trail_length:     int   = 12     # trail history length (frames)
+    show_network:     bool  = False  # connect tracked blobs with lines
+    label_prefix:     str   = "TGT"  # custom label prefix (was hard-coded "TGT")
+    show_extra_data:  bool  = False  # append V / ID / LOCK to the data line
+    show_timestamp:   bool  = False  # HUD timestamp overlay in a screen corner
+    timestamp_format: int   = 0      # 0=date+time 1=time 2=date 3=frame counter
 
 
 # ---------------------------------------------------------------- settings ----
@@ -1182,12 +1193,15 @@ def _make_opencv_tracker(mode: str):
 class _BlobTrackerState:
     """Holds per-render-pass OpenCV trackers so blob IDs persist between
     frames.  Reset to empty before each render/preview cut sequence."""
-    __slots__ = ("trackers", "bboxes", "mode")
+    __slots__ = ("trackers", "bboxes", "mode", "trails")
 
     def __init__(self, mode: str = "hsv"):
         self.trackers: list = []
         self.bboxes:   list = []
         self.mode = mode
+        # per-slot centroid history for motion trails / velocity (index-keyed,
+        # slot = sorted-largest-first blob position). list[list[(cx, cy)]]
+        self.trails: list = []
 
 
 def _track_blobs(frame_bgr: np.ndarray,
@@ -1203,10 +1217,11 @@ def _track_blobs(frame_bgr: np.ndarray,
     if state is None or bt.tracker_mode not in _OPENCV_TRACKER_MODES:
         return _detect_blobs(frame_bgr, bt)
 
-    # tracker mode swap mid-pass → wipe state
+    # tracker mode swap mid-pass → wipe state (incl. trail history)
     if state.mode != bt.tracker_mode:
         state.trackers.clear()
         state.bboxes.clear()
+        state.trails.clear()
         state.mode = bt.tracker_mode
 
     h, w = frame_bgr.shape[:2]
@@ -1325,16 +1340,103 @@ def _detect_blobs(frame_bgr: np.ndarray,
     return blobs[:bt.max_blobs]
 
 
+def _dashed_line(img, p1, p2, col, thick=1, dash=8, gap=6):
+    """Anti-aliased dashed segment between two integer points."""
+    x1, y1 = p1
+    x2, y2 = p2
+    dist = math.hypot(x2 - x1, y2 - y1)
+    if dist < 1.0:
+        return
+    period = float(dash + gap)
+    i = 0.0
+    while i < dist:
+        a = i / dist
+        b = min(1.0, (i + dash) / dist)
+        cv2.line(img,
+                 (int(x1 + (x2 - x1) * a), int(y1 + (y2 - y1) * a)),
+                 (int(x1 + (x2 - x1) * b), int(y1 + (y2 - y1) * b)),
+                 col, thick, cv2.LINE_AA)
+        i += period
+
+
+def _dashed_rect(img, x1, y1, x2, y2, col, thick=1):
+    _dashed_line(img, (x1, y1), (x2, y1), col, thick)
+    _dashed_line(img, (x2, y1), (x2, y2), col, thick)
+    _dashed_line(img, (x2, y2), (x1, y2), col, thick)
+    _dashed_line(img, (x1, y2), (x1, y1), col, thick)
+
+
+def _draw_hud_timestamp(result, bt, frame_idx, col):
+    """Top-left HUD timestamp + blinking REC indicator (drawn once/frame)."""
+    from datetime import datetime
+    h, w = result.shape[:2]
+    fmt  = int(getattr(bt, "timestamp_format", 0))
+    now  = datetime.now()
+    if   fmt == 1: stamp = now.strftime("%H:%M:%S")
+    elif fmt == 2: stamp = now.strftime("%Y-%m-%d")
+    elif fmt == 3: stamp = f"FRAME {int(frame_idx):06d}"
+    else:          stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+    fs     = max(0.5, min(w, h) / 900.0)
+    margin = max(10, int(min(w, h) * 0.03))
+    y      = margin + 6
+    # blinking red REC dot (~2 Hz at 30fps)
+    if (int(frame_idx) // 15) % 2 == 0:
+        cv2.circle(result, (margin + 6, y - 4), 5, (0, 0, 255), -1, cv2.LINE_AA)
+    cv2.putText(result, "REC", (margin + 18, y),
+                cv2.FONT_HERSHEY_PLAIN, fs, col, 1, cv2.LINE_AA)
+    cv2.putText(result, stamp, (margin, y + 18),
+                cv2.FONT_HERSHEY_PLAIN, fs, col, 1, cv2.LINE_AA)
+
+
 def _draw_blob_overlay(frame: np.ndarray,
                        blobs: list,
-                       bt: BlobTrackSettings) -> np.ndarray:
-    """Draw GitS-style corner brackets and data labels on detected blobs.
-    Renders IN-PLACE on a copy so the shaders pick up the marks."""
+                       bt: BlobTrackSettings,
+                       state: "_BlobTrackerState | None" = None,
+                       frame_idx: int = 0) -> np.ndarray:
+    """Draw GitS-style HUD marks on detected blobs.
+
+    Supports several opt-in extras (all default-off so the classic look is
+    unchanged): bracket styles, full-frame crosshair, leader lines, fading
+    motion trails, an inter-blob connection network, a customisable label
+    prefix, extra data (velocity / ID / lock), and a HUD timestamp.
+    Renders on a copy so the shaders pick up the marks."""
     result = frame.copy()
     h, w = result.shape[:2]
     # RGB → BGR for cv2
     col = (bt.bracket_color[2], bt.bracket_color[1], bt.bracket_color[0])
     t   = max(1, bt.bracket_thickness)
+    prefix = (getattr(bt, "label_prefix", "TGT") or "TGT").strip() or "TGT"
+    style  = int(getattr(bt, "bracket_style", 0))
+
+    centroids = [(cx, cy) for (cx, cy, _a, _b) in blobs]
+
+    # ── per-slot trail history (needed for trails AND velocity) ──
+    trails = None
+    if state is not None and (getattr(bt, "show_trails", False)
+                              or getattr(bt, "show_extra_data", False)):
+        tl = max(2, int(getattr(bt, "trail_length", 12)))
+        while len(state.trails) < len(centroids):
+            state.trails.append([])
+        if len(state.trails) > len(centroids):
+            state.trails = state.trails[:len(centroids)]
+        for i, c in enumerate(centroids):
+            state.trails[i].append(c)
+            if len(state.trails[i]) > tl:
+                state.trails[i] = state.trails[i][-tl:]
+        trails = state.trails
+
+    # ── connection network between blobs ──
+    if getattr(bt, "show_network", False) and len(centroids) >= 2:
+        fsn = max(0.35, min(w, h) / 1200.0)
+        for i in range(len(centroids)):
+            for j in range(i + 1, len(centroids)):
+                _dashed_line(result, centroids[i], centroids[j], col, 1, 10, 8)
+                mx = (centroids[i][0] + centroids[j][0]) // 2
+                my = (centroids[i][1] + centroids[j][1]) // 2
+                d  = int(math.hypot(centroids[i][0] - centroids[j][0],
+                                    centroids[i][1] - centroids[j][1]))
+                cv2.putText(result, f"{d}", (mx, my),
+                            cv2.FONT_HERSHEY_PLAIN, fsn, col, 1, cv2.LINE_AA)
 
     for idx, (cx, cy, area, (bx, by, bw, bh)) in enumerate(blobs):
         pad  = max(6, int(min(bw, bh) * 0.12))
@@ -1344,15 +1446,44 @@ def _draw_blob_overlay(frame: np.ndarray,
         y2   = min(h - 1, by + bh + pad)
         arm  = max(8, min(bw, bh) // 4)   # corner arm length
 
-        # Corner brackets — 8 line segments
-        for (px, py, dx, dy) in (
-            (x1, y1, +1,  0), (x1, y1,  0, +1),   # TL
-            (x2, y1, -1,  0), (x2, y1,  0, +1),   # TR
-            (x1, y2, +1,  0), (x1, y2,  0, -1),   # BL
-            (x2, y2, -1,  0), (x2, y2,  0, -1),   # BR
-        ):
-            cv2.line(result, (px, py),
-                     (px + dx * arm, py + dy * arm), col, t, cv2.LINE_AA)
+        # ── full-frame crosshair through centroid ──
+        if getattr(bt, "show_crosshair", False):
+            cv2.line(result, (0, cy), (w - 1, cy), col, 1, cv2.LINE_AA)
+            cv2.line(result, (cx, 0), (cx, h - 1), col, 1, cv2.LINE_AA)
+
+        # ── fading motion trail ──
+        if trails is not None and getattr(bt, "show_trails", False) \
+                and idx < len(trails) and len(trails[idx]) >= 2:
+            pts = trails[idx]
+            n   = len(pts)
+            for k in range(1, n):
+                fade = k / n
+                tcol = tuple(int(c0 * (0.25 + 0.75 * fade)) for c0 in col)
+                cv2.line(result, pts[k - 1], pts[k], tcol,
+                         max(1, int(round(t * fade))), cv2.LINE_AA)
+
+        # ── bracket (style-dependent) ──
+        if style == 1:          # full rectangle
+            cv2.rectangle(result, (x1, y1), (x2, y2), col, t, cv2.LINE_AA)
+        elif style == 2:        # circle / reticle
+            r = max(arm * 2, max(x2 - x1, y2 - y1) // 2)
+            ccx, ccy = (x1 + x2) // 2, (y1 + y2) // 2
+            cv2.circle(result, (ccx, ccy), r, col, t, cv2.LINE_AA)
+            for (dx, dy) in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+                cv2.line(result, (ccx + dx * r, ccy + dy * r),
+                         (ccx + dx * (r + arm // 2), ccy + dy * (r + arm // 2)),
+                         col, t, cv2.LINE_AA)
+        elif style == 3:        # dashed rectangle
+            _dashed_rect(result, x1, y1, x2, y2, col, t)
+        else:                   # 0 = corner brackets (classic)
+            for (px, py, dx, dy) in (
+                (x1, y1, +1,  0), (x1, y1,  0, +1),   # TL
+                (x2, y1, -1,  0), (x2, y1,  0, +1),   # TR
+                (x1, y2, +1,  0), (x1, y2,  0, -1),   # BL
+                (x2, y2, -1,  0), (x2, y2,  0, -1),   # BR
+            ):
+                cv2.line(result, (px, py),
+                         (px + dx * arm, py + dy * arm), col, t, cv2.LINE_AA)
 
         # Crosshair at centroid
         if bt.show_centroid:
@@ -1361,21 +1492,43 @@ def _draw_blob_overlay(frame: np.ndarray,
             cv2.line(result, (cx, cy - cs), (cx, cy + cs), col, 1, cv2.LINE_AA)
             cv2.circle(result, (cx, cy), 2, col, -1, cv2.LINE_AA)
 
-        # Label above bracket
+        # Label (with optional leader line up-left from the bracket corner)
+        label  = f"{prefix}.{idx+1:02d}"
+        fs     = max(0.4, min(w, h) / 800.0)
+        lx, ly = x1, max(10, y1 - 6)
+        if getattr(bt, "show_leader", False):
+            lead_x = max(2, x1 - max(12, arm))
+            lead_y = max(10, y1 - max(12, arm))
+            cv2.line(result, (x1, y1), (lead_x, lead_y), col, 1, cv2.LINE_AA)
+            cv2.circle(result, (lead_x, lead_y), 2, col, -1, cv2.LINE_AA)
+            lx, ly = lead_x, max(10, lead_y - 4)
         if bt.show_labels:
-            label = f"TGT.{idx+1:02d}"
-            fs    = max(0.4, min(w, h) / 800.0)
-            cv2.putText(result, label,
-                        (x1, max(10, y1 - 6)),
+            cv2.putText(result, label, (lx, ly),
                         cv2.FONT_HERSHEY_PLAIN, fs, col, 1, cv2.LINE_AA)
 
-        # Data line below bracket
+        # Data line below bracket (+ optional velocity / ID / lock)
         if bt.show_data_line:
             data = f"AREA:{area:05d}  X:{cx:04d} Y:{cy:04d}"
-            fs2  = max(0.35, min(w, h) / 1000.0)
+            if getattr(bt, "show_extra_data", False):
+                v = 0
+                if trails is not None and idx < len(trails) \
+                        and len(trails[idx]) >= 2:
+                    (px0, py0), (px1, py1) = trails[idx][-2], trails[idx][-1]
+                    v = int(round(math.hypot(px1 - px0, py1 - py0)))
+                # [TRACK] = OpenCV tracker is active for this slot;
+                # [SCAN]  = falling back to per-frame HSV detection.
+                tracking = (state is not None
+                            and idx < len(state.trackers))
+                data += f"  V:{v:03d} ID:{idx+1:02d}"
+                data += "  [TRACK]" if tracking else "  [SCAN]"
+            fs2 = max(0.35, min(w, h) / 1000.0)
             cv2.putText(result, data,
                         (x1, min(h - 4, y2 + 14)),
                         cv2.FONT_HERSHEY_PLAIN, fs2, col, 1, cv2.LINE_AA)
+
+    # ── HUD timestamp (independent of blob count) ──
+    if getattr(bt, "show_timestamp", False):
+        _draw_hud_timestamp(result, bt, frame_idx, col)
 
     return result
 
@@ -3302,14 +3455,14 @@ def preview(audio_path: Path, media_folder: Path,
         bt = settings.blob_track
         if bt.enabled:
             blobs = _track_blobs(frame, bt, blob_tracker_state)
-            if blobs:
-                if bt.zoom_to_blob:
-                    cx_n = blobs[0][0] / max(1, pw)
-                    cy_n = blobs[0][1] / max(1, ph)
-                    frame = _blob_zoom_frame(frame, cx_n, cy_n,
-                                             cur_clip_t, cur_dur, cur.motion_amp)
-                if bt.show_overlay:
-                    frame = _draw_blob_overlay(frame, blobs, bt)
+            if blobs and bt.zoom_to_blob:
+                cx_n = blobs[0][0] / max(1, pw)
+                cy_n = blobs[0][1] / max(1, ph)
+                frame = _blob_zoom_frame(frame, cx_n, cy_n,
+                                         cur_clip_t, cur_dur, cur.motion_amp)
+            if bt.show_overlay:
+                frame = _draw_blob_overlay(frame, blobs, bt, blob_tracker_state,
+                                           int(t * settings.fps))
 
         # ---- text card flash (replaces frame — disables GPU warp) ----
         if cur.text_card and 0.0 <= (t - cur.t_start) < cur.text_card_dur:
@@ -3669,14 +3822,13 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
         bt = settings.blob_track
         if bt.enabled:
             blobs = _track_blobs(frame, bt, blob_tracker_state)
-            if blobs:
-                if bt.zoom_to_blob:
-                    cx_n = blobs[0][0] / max(1, ow)
-                    cy_n = blobs[0][1] / max(1, oh)
-                    frame = _blob_zoom_frame(frame, cx_n, cy_n,
-                                             cur_clip_t, cur_dur, cur.motion_amp)
-                if bt.show_overlay:
-                    frame = _draw_blob_overlay(frame, blobs, bt)
+            if blobs and bt.zoom_to_blob:
+                cx_n = blobs[0][0] / max(1, ow)
+                cy_n = blobs[0][1] / max(1, oh)
+                frame = _blob_zoom_frame(frame, cx_n, cy_n,
+                                         cur_clip_t, cur_dur, cur.motion_amp)
+            if bt.show_overlay:
+                frame = _draw_blob_overlay(frame, blobs, bt, blob_tracker_state, f)
 
         # ---- text card flash ----
         if cur.text_card and 0.0 <= (t - cur.t_start) < cur.text_card_dur:
