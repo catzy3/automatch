@@ -500,8 +500,6 @@ def _collect_effect_overrides() -> dict:
     """Emit overrides for every effect.  `locked` is reported downstream as
     `on` (same render behaviour) — locked is a UI-only sticky flag.
     When bypass_effects_chk is checked all effects are reported as off."""
-    if dpg.does_item_exist("bypass_effects_chk") and dpg.get_value("bypass_effects_chk"):
-        return {}
     overrides = {}
     for kind in USER_EFFECTS:
         state = _FX_STATE.get(kind, "off")
@@ -1681,6 +1679,7 @@ def _collect_settings() -> AutoEditSettings:
         glitch_params        = _collect_glitch_params(),
         modulate_params      = _collect_modulate_params(),
         pixelate_params      = _collect_pixelate_params(),
+        bypass_montage       = bool(dpg.get_value("bypass_montage_chk")) if dpg.does_item_exist("bypass_montage_chk") else False,
         effect_overrides     = _collect_effect_overrides(),
         text_cards           = _collect_text_cards(),
         blob_track           = _collect_blob_track(),
@@ -2395,45 +2394,7 @@ def _build_effects_section():
         with dpg.child_window(width=380, height=290, border=True,
                               tag="fx_matrix_container",
                               no_scrollbar=True):
-            cells = list(USER_EFFECTS)
-            cols = 4
-            cell_w, cell_h = 84, 46
-            for r in range(0, len(cells), cols):
-                row_cells = cells[r:r + cols]
-                with dpg.group(horizontal=True):
-                    for kind in row_cells:
-                        with dpg.group():
-                            dpg.add_button(
-                                label=_FX_ABBR.get(kind, kind[:5].upper()),
-                                tag=f"fx_btn_{kind}",
-                                width=cell_w, height=cell_h,
-                                callback=_cycle_fx_state,
-                                user_data=kind,
-                            )
-                            # drag source: drag this cell to another to reorder chain
-                            with dpg.drag_payload(
-                                    parent=f"fx_btn_{kind}",
-                                    drag_data=kind,
-                                    payload_type="FX_CELL"):
-                                dpg.add_text(_FX_ABBR.get(kind, kind[:5].upper()))
-                            # drop target: accept FX_CELL drops
-                            dpg.configure_item(
-                                f"fx_btn_{kind}",
-                                payload_type="FX_CELL",
-                                drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
-                            )
-                            dpg.add_text(_FX_SHORT.get(kind, kind),
-                                         color=_GL_DIM, wrap=cell_w)
-                        # hidden per-effect sliders (kept for collection
-                        # plumbing — side panel mirrors them when selected)
-                        dpg.add_slider_float(
-                            tag=f"fx_mix_{kind}", default_value=0.65,
-                            min_value=0.0, max_value=1.0, show=False,
-                        )
-                        dpg.add_checkbox(
-                            tag=f"fx_randmix_{kind}", default_value=False,
-                            show=False,
-                        )
+            pass  # filled by _rebuild_matrix() below
 
         # ── RIGHT: side params panel ─────────────────────────────────
         with dpg.child_window(width=-1, height=290, border=True,
@@ -3969,11 +3930,12 @@ def _apply_effect_chain_gui(chain: list) -> None:
 def _chain_reset():
     global _CHAIN_ORDER
     _CHAIN_ORDER = list(USER_EFFECTS)
+    _rebuild_matrix()
 
 
 def _chain_cell_drop(dst_kind: str, src_kind: str):
     """Called when src_kind cell is dropped onto dst_kind cell.
-    Moves src to the position of dst in _CHAIN_ORDER."""
+    Moves src to the position of dst in _CHAIN_ORDER, then rebuilds grid."""
     if src_kind == dst_kind:
         return
     try:
@@ -3982,10 +3944,83 @@ def _chain_cell_drop(dst_kind: str, src_kind: str):
     except ValueError:
         return
     _CHAIN_ORDER.insert(dst_i, _CHAIN_ORDER.pop(src_i))
+    _rebuild_matrix()
     if dpg.does_item_exist("status"):
         a = _FX_ABBR.get(src_kind, src_kind)
         b = _FX_ABBR.get(dst_kind, dst_kind)
-        dpg.set_value("status", f"Цепочка: {a} → позиция {dst_i + 1} (перед {b})")
+        dpg.set_value("status", f"Цепочка: {a} → позиция {dst_i + 1}")
+
+
+def _rebuild_matrix():
+    """Rebuild matrix cells in current _CHAIN_ORDER order.
+    Preserves mix/randmix values and rebinds state themes."""
+    if not dpg.does_item_exist("fx_matrix_container"):
+        return
+
+    # Snapshot slider/checkbox values before deletion
+    saved_mix = {k: dpg.get_value(f"fx_mix_{k}")
+                 for k in USER_EFFECTS if dpg.does_item_exist(f"fx_mix_{k}")}
+    saved_rnd = {k: dpg.get_value(f"fx_randmix_{k}")
+                 for k in USER_EFFECTS if dpg.does_item_exist(f"fx_randmix_{k}")}
+
+    dpg.delete_item("fx_matrix_container", children_only=True)
+
+    cols, cell_w, cell_h = 4, 84, 46
+    cells = list(_CHAIN_ORDER)
+
+    for r in range(0, len(cells), cols):
+        row_cells = cells[r:r + cols]
+        with dpg.group(horizontal=True, parent="fx_matrix_container"):
+            for kind in row_cells:
+                # Visual cell group
+                with dpg.group():
+                    dpg.add_button(
+                        label=_FX_ABBR.get(kind, kind[:5].upper()),
+                        tag=f"fx_btn_{kind}",
+                        width=cell_w, height=cell_h,
+                        callback=_cycle_fx_state,
+                        user_data=kind,
+                    )
+                    with dpg.drag_payload(parent=f"fx_btn_{kind}",
+                                          drag_data=kind,
+                                          payload_type="FX_CELL"):
+                        dpg.add_text(_FX_ABBR.get(kind, kind[:5].upper()))
+                    dpg.configure_item(
+                        f"fx_btn_{kind}",
+                        payload_type="FX_CELL",
+                        drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
+                    )
+                    dpg.add_text(_FX_SHORT.get(kind, kind),
+                                 color=_GL_DIM, wrap=cell_w)
+                # Hidden sliders — siblings of the cell group
+                dpg.add_slider_float(
+                    tag=f"fx_mix_{kind}",
+                    default_value=saved_mix.get(kind, 0.65),
+                    min_value=0.0, max_value=1.0,
+                    show=False,
+                )
+                dpg.add_checkbox(
+                    tag=f"fx_randmix_{kind}",
+                    default_value=saved_rnd.get(kind, False),
+                    show=False,
+                )
+
+    # Rebind button + slider themes to match FX state
+    for kind in USER_EFFECTS:
+        btn = f"fx_btn_{kind}"
+        if not dpg.does_item_exist(btn) or not _BTN_THEMES:
+            continue
+        state = _FX_STATE.get(kind, "off")
+        sel   = (kind == _SELECTED_FX)
+        theme = (_BTN_THEMES_SEL if sel else _BTN_THEMES).get(state)
+        if theme:
+            dpg.bind_item_theme(btn, theme)
+        mix = f"fx_mix_{kind}"
+        if dpg.does_item_exist(mix) and _SLIDER_ACTIVE and _SLIDER_DIMMED:
+            dpg.bind_item_theme(
+                mix,
+                _SLIDER_ACTIVE if state in ("on", "random", "locked") else _SLIDER_DIMMED,
+            )
 
 
 def _build_chain_tiles():
@@ -4348,11 +4383,12 @@ def _build_action_bar():
     dpg.add_separator()
     dpg.add_spacer(height=6)
     with dpg.group(horizontal=True):
-        dpg.add_checkbox(label="БЕЗ ЭФФЕКТОВ (bypass)",
-                         tag="bypass_effects_chk",
+        dpg.add_checkbox(label="БЕЗ МОНТАЖА",
+                         tag="bypass_montage_chk",
                          default_value=False)
         dpg.add_spacer(width=12)
-        dpg.add_text("— при рендере все эффекты игнорируются", color=_GL_DIM)
+        dpg.add_text("— без нарезки по битам; эффекты применяются к исходнику целиком",
+                     color=_GL_DIM)
     dpg.add_spacer(height=6)
     with dpg.group(horizontal=True):
         dpg.add_button(label="Preview", tag="preview_btn",
@@ -4465,6 +4501,7 @@ def main() -> int:
         # ── effects (star of the show) ──────────────────────────────────────
         # dither sub-panel lives inside the side panel of the matrix now
         _build_effects_section()
+        _rebuild_matrix()          # fill the matrix container with cells
         dpg.add_spacer(height=8)
 
         # ── palette ─────────────────────────────────────────────────────────

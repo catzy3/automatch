@@ -284,6 +284,9 @@ class AutoEditSettings:
     # "off"    — force disabled
     # "random" — per-cut 50/50 enabled, mix follows the same rule
     effect_overrides: dict = field(default_factory=dict)
+    # When True: skip beat-sync cutting, apply effects to the full source as
+    # one continuous clip (no timeline building, just effect pass over raw footage).
+    bypass_montage: bool = False
     # Custom effect chain order — list of effect kind strings.
     # Empty list = use default USER_EFFECTS order.
     # When non-empty, snap.effects is reordered to match before each render.
@@ -3375,9 +3378,21 @@ def preview(audio_path: Path, media_folder: Path,
     types = [("img" if p.suffix.lower() in MediaPool.IMAGE_EXT else "vid")
              for p in pool.paths]
     report(0.22, f"{len(pool)} files: {dict((t, types.count(t)) for t in set(types))}")
-    cuts = build_timeline(beats, settings, len(pool), seed=settings.seed,
-                          get_duration=pool.get_duration,
-                          audio=audio)
+
+    # bypass_montage: skip beat-sync cutting, treat the whole duration as one cut.
+    if getattr(settings, "bypass_montage", False):
+        # Single long cut — no beat-sync editing, effects applied to full footage.
+        cuts = [Cut(
+            t_start=0.0,
+            t_end=settings.duration,
+            clip_idx=0,
+            preset_seed=int(settings.seed) or 1,
+        )]
+        report(0.22, "bypass_montage: single-cut mode")
+    else:
+        cuts = build_timeline(beats, settings, len(pool), seed=settings.seed,
+                              get_duration=pool.get_duration,
+                              audio=audio)
     clip_seq = [c.clip_idx for c in cuts]
     report(0.30, f"{len(pool)} clips, {len(cuts)} cuts (seed={settings.seed})")
     report(0.31, f"clip sequence: {clip_seq}")
