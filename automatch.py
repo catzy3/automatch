@@ -438,6 +438,7 @@ USER_EFFECTS: tuple = (
     "dither", "rgb_split", "edges", "pixel_swap", "kaleidoscope", "slit_scan",
     "distort", "thermal", "cellular", "elastic_grid", "crt_monitor",
     "found_footage", "chromatic_aberration", "color_posterize", "swirl",
+    "iridescent_foil",
 )
 
 # Effects whose wet/dry mix slider is hidden — always render at full strength.
@@ -473,6 +474,7 @@ EFFECT_LABELS_RU: dict = {
     "chromatic_aberration":  "Хром. аберрация (lens)",
     "color_posterize":       "Постеризация (палитра)",
     "swirl":                 "Вихрь (swirl)",
+    "iridescent_foil":       "Голографическая фольга",
 }
 
 
@@ -2113,6 +2115,7 @@ class OffscreenRenderer:
             "thermal", "cellular", "elastic_grid", "crt_monitor", "glitch",
             "modulate", "pixelate",
             "found_footage", "chromatic_aberration", "color_posterize", "swirl",
+            "iridescent_foil",
             "final",
         ]
         self.progs = {}
@@ -2755,6 +2758,12 @@ class OffscreenRenderer:
             U("u_cx",       getattr(params, "swirl_cx",       0.5))
             U("u_cy",       getattr(params, "swirl_cy",       0.5))
             U("u_animate",  getattr(params, "swirl_animate",  0.0))
+        elif kind == "iridescent_foil":
+            U("u_hue_range", getattr(params, "ir_hue_range", 0.5))
+            U("u_speed",     getattr(params, "ir_speed",     0.4))
+            U("u_metallic",  getattr(params, "ir_metallic",  0.6))
+            U("u_scale",     getattr(params, "ir_scale",     1.5))
+            U("u_opacity",   getattr(params, "ir_opacity",   0.7))
             U("u_fb_mode",  getattr(params, "pixelate_fb_mode",  0.0))
 
 

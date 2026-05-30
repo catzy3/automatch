@@ -48,6 +48,7 @@ _FX_SHORT = {
     "chromatic_aberration": "Chr. Aberration",
     "color_posterize":      "Posterize",
     "swirl":                "Swirl",
+    "iridescent_foil":      "Iridescent Foil",
 }
 
 # Set by the entry point (shi_o_kiku.py) to the directory where the user
@@ -322,6 +323,7 @@ _FX_ABBR = {
     "chromatic_aberration": "CHRAB",
     "color_posterize":      "POST",
     "swirl":                "SWIRL",
+    "iridescent_foil":     "IRDSC",
 }
 
 # GL1TCH palette (effects panel only; rest of GUI stays deep-navy)
