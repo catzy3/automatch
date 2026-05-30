@@ -62,6 +62,35 @@ def _make_fbo(ctx, w, h, components=4):
     return tex, fbo
 
 
+def _bake_blue_noise(ctx, size: int = 64):
+    """Tileable blue-noise-like tile via iterative HPF. Cached to disk."""
+    cache_path = Path(__file__).parent / "models" / f"blue_noise_{size}.npy"
+    try:
+        if cache_path.exists():
+            arr = np.load(str(cache_path))
+        else:
+            rng = np.random.default_rng(0xB10E_5EED)
+            arr = rng.random((size, size)).astype(np.float32)
+            for _ in range(20):
+                blurred = (arr
+                           + np.roll(arr,  1, 0) + np.roll(arr, -1, 0)
+                           + np.roll(arr,  1, 1) + np.roll(arr, -1, 1)) / 5.0
+                arr = arr - 0.65 * (blurred - 0.5)
+            arr = (arr - arr.min()) / max(float(np.ptp(arr)), 1e-6)
+            cache_path.parent.mkdir(exist_ok=True)
+            try:
+                np.save(str(cache_path), arr)
+            except Exception:
+                pass
+        byte = (np.clip(arr, 0.0, 1.0) * 255).astype(np.uint8)
+    except Exception:
+        byte = (np.random.default_rng(0).random((size, size)) * 255).astype(np.uint8)
+    tex = ctx.texture((size, size), 1, byte.tobytes())
+    tex.repeat_x = tex.repeat_y = True
+    tex.filter = (moderngl.NEAREST, moderngl.NEAREST)
+    return tex
+
+
 class RenderThread(threading.Thread):
     def __init__(self, state: SharedState,
                  recorder_queue: queue.Queue | None = None) -> None:
@@ -187,6 +216,9 @@ class RenderThread(threading.Thread):
         last_depth_version = -1
         depth_snapshot = None  # FBO holding the frame at the last depth_save
 
+        # ---- blue-noise tile for dither algo=3 ----
+        blue_noise_tex = None
+
         # ---- ASCII glyph atlas (live-regenerated when params.ascii_text changes) ----
         ascii_tex = None
         ascii_glyph_count = 8
@@ -209,6 +241,11 @@ class RenderThread(threading.Thread):
             _rebuild_ascii_atlas(ASCII_DEFAULT)
         except Exception as e:
             print(f"[renderer] ASCII atlas init failed: {e}")
+
+        try:
+            blue_noise_tex = _bake_blue_noise(ctx)
+        except Exception as e:
+            print(f"[renderer] blue noise bake failed: {e}")
 
         spout = None
         if HAS_SPOUT:
@@ -554,6 +591,12 @@ class RenderThread(threading.Thread):
                     else:
                         src[0].use(2)
                         prog["u_flow"] = 2
+                elif kind == "dither":
+                    prog["u_tex"] = 0
+                    if blue_noise_tex is not None:
+                        blue_noise_tex.use(1)
+                        if "u_blue_noise" in prog_uniforms.get("dither", set()):
+                            prog["u_blue_noise"] = 1
                 else:
                     prog["u_tex"] = 0
                     if kind in _EFFECTS_WITH_PREV:
