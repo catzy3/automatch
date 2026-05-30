@@ -594,10 +594,10 @@ def _build_effect_browser_window():
     placeholder = [0.1, 0.1, 0.15, 1.0] * (_prev_w * _prev_h)
 
     with dpg.texture_registry(tag="br_tex_reg"):
-        dpg.add_static_texture(width=_prev_w, height=_prev_h,
-                               default_value=placeholder,
-                               tag="br_preview_tex",
-                               parent="br_tex_reg")
+        dpg.add_dynamic_texture(width=_prev_w, height=_prev_h,
+                                default_value=placeholder,
+                                tag="br_preview_tex",
+                                parent="br_tex_reg")
 
     with dpg.theme() as _win_theme:
         with dpg.theme_component(dpg.mvAll):
