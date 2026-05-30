@@ -487,9 +487,21 @@ def _reset_all_effects(_s=None, _a=None):
         dpg.set_value("status", "Все эффекты → OFF (locked не тронуты)")
 
 
+def _kill_all_effects(_s=None, _a=None):
+    """Kill ALL effects including locked ones."""
+    for kind in USER_EFFECTS:
+        _set_fx_state(kind, "off")
+    _refresh_side_panel()
+    if dpg.does_item_exist("status"):
+        dpg.set_value("status", "KILL ALL — все эффекты выключены")
+
+
 def _collect_effect_overrides() -> dict:
     """Emit overrides for every effect.  `locked` is reported downstream as
-    `on` (same render behaviour) — locked is a UI-only sticky flag."""
+    `on` (same render behaviour) — locked is a UI-only sticky flag.
+    When bypass_effects_chk is checked all effects are reported as off."""
+    if dpg.does_item_exist("bypass_effects_chk") and dpg.get_value("bypass_effects_chk"):
+        return {}
     overrides = {}
     for kind in USER_EFFECTS:
         state = _FX_STATE.get(kind, "off")
@@ -2358,6 +2370,9 @@ def _build_effects_section():
         dpg.add_button(label="CLEAR",   tag="fx_clear_btn",
                        width=78, height=24,
                        callback=_reset_all_effects)
+        dpg.add_button(label="KILL ALL", tag="fx_kill_all_btn",
+                       width=88, height=24,
+                       callback=_kill_all_effects)
     dpg.add_spacer(height=6)
 
     # 2-col: matrix on the left, side panel on the right
@@ -4207,6 +4222,13 @@ def _build_footer_strip():
 def _build_action_bar():
     dpg.add_spacer(height=8)
     dpg.add_separator()
+    dpg.add_spacer(height=6)
+    with dpg.group(horizontal=True):
+        dpg.add_checkbox(label="БЕЗ ЭФФЕКТОВ (bypass)",
+                         tag="bypass_effects_chk",
+                         default_value=False)
+        dpg.add_spacer(width=12)
+        dpg.add_text("— при рендере все эффекты игнорируются", color=_GL_DIM)
     dpg.add_spacer(height=6)
     with dpg.group(horizontal=True):
         dpg.add_button(label="Preview", tag="preview_btn",
