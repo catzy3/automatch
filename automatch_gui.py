@@ -3255,6 +3255,9 @@ def _build_effects_section():
         color=_GL_DIM, wrap=-1,
     )
 
+    # ── Effect Chain drag-drop tiles ─────────────────────────────────────────
+    _build_chain_tiles()
+
 
 def _build_palette_section():
     _section_sep("Цветовая гамма")
@@ -3928,18 +3931,20 @@ def _clear_mod_config() -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _CHAIN_ORDER: list = list(USER_EFFECTS)   # mutable, persists in session
+_CHAIN_TILES_BUILT: bool = False          # guard against double-build
+
+_TILES_PER_ROW = 6
+_TILE_W = 62
+_TILE_H = 46
 
 
 def _collect_effect_chain() -> list:
-    """Return the current chain order as a list of effect kind strings.
-    Returns [] if chain mode is disabled (use default order)."""
     if not dpg.does_item_exist("chain_enabled") or not dpg.get_value("chain_enabled"):
         return []
     return list(_CHAIN_ORDER)
 
 
 def _apply_effect_chain_gui(chain: list) -> None:
-    """Restore chain order from a saved list."""
     global _CHAIN_ORDER
     if not chain:
         _CHAIN_ORDER = list(USER_EFFECTS)
@@ -3949,82 +3954,88 @@ def _apply_effect_chain_gui(chain: list) -> None:
         for k in USER_EFFECTS:
             if k not in seen:
                 _CHAIN_ORDER.append(k)
-    _refresh_chain_ui()
+    _refresh_chain_tiles()
 
 
-def _refresh_chain_ui():
-    """Rebuild the chain rows to reflect current _CHAIN_ORDER."""
-    for idx, kind in enumerate(_CHAIN_ORDER):
-        name_tag = f"chain_name_{idx}"
-        if dpg.does_item_exist(name_tag):
-            state = _FX_STATE.get(kind, "off")
-            col = {
-                "off":    _GL_DIM,
-                "on":     _GL_GREEN,
-                "random": _GL_MAGENTA,
-                "locked": _GL_CYAN,
-            }.get(state, _GL_TEXT)
-            label = EFFECT_LABELS_RU.get(kind, kind)
-            dpg.configure_item(name_tag,
-                               default_value=f"{idx+1:02d}. {label}",
-                               color=col)
+def _refresh_chain_tiles():
+    """Update tile labels and themes to reflect current _CHAIN_ORDER."""
+    for slot, kind in enumerate(_CHAIN_ORDER):
+        tag = f"chain_tile_{slot}"
+        if not dpg.does_item_exist(tag):
+            continue
+        state = _FX_STATE.get(kind, "off")
+        abbr  = _FX_ABBR.get(kind, kind[:5].upper())
+        label = f"{slot+1:02d}\n{abbr}"
+        dpg.configure_item(tag, label=label)
+        if _BTN_THEMES:
+            theme = _BTN_THEMES.get(state)
+            if theme:
+                dpg.bind_item_theme(tag, theme)
 
 
-def _chain_move(idx: int, direction: int):
-    """Move effect at idx up (-1) or down (+1) in _CHAIN_ORDER."""
-    global _CHAIN_ORDER
-    n = len(_CHAIN_ORDER)
-    new_idx = idx + direction
-    if new_idx < 0 or new_idx >= n:
-        return
-    _CHAIN_ORDER[idx], _CHAIN_ORDER[new_idx] = _CHAIN_ORDER[new_idx], _CHAIN_ORDER[idx]
-    _refresh_chain_ui()
+def _make_chain_drop_cb(dst_slot: int):
+    def cb(sender, src_slot):
+        if src_slot == dst_slot:
+            return
+        _CHAIN_ORDER.insert(dst_slot, _CHAIN_ORDER.pop(src_slot))
+        _refresh_chain_tiles()
+    return cb
 
 
 def _chain_reset():
     global _CHAIN_ORDER
     _CHAIN_ORDER = list(USER_EFFECTS)
-    _refresh_chain_ui()
+    _refresh_chain_tiles()
 
 
-def _build_effect_chain_section():
-    with dpg.collapsing_header(label="  Effect Chain (порядок рендера)",
-                               default_open=False):
-        dpg.add_checkbox(label="Включить кастомный порядок",
+def _build_chain_tiles():
+    """Drag-drop tile grid — call from inside _build_effects_section()."""
+    global _CHAIN_TILES_BUILT
+    if _CHAIN_TILES_BUILT:
+        return
+    _CHAIN_TILES_BUILT = True
+
+    dpg.add_spacer(height=8)
+    dpg.add_separator()
+    dpg.add_spacer(height=4)
+
+    with dpg.group(horizontal=True):
+        dpg.add_checkbox(label="Активировать цепочку",
                          tag="chain_enabled", default_value=False)
-        dpg.add_text(
-            "Включи, чтобы эффекты применялись в порядке из этого списка. "
-            "Выключен = стандартный порядок (VHS→Dither→…).",
-            color=_GL_DIM, wrap=-1,
-        )
-        dpg.add_spacer(height=4)
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="СБРОС ПОРЯДКА", width=130,
-                           callback=lambda: _chain_reset())
-            dpg.add_spacer(width=8)
-            dpg.add_text("← Порядок сверху вниз = первый → последний в цепочке",
-                         color=_GL_DIM)
-        dpg.add_spacer(height=6)
+        dpg.add_spacer(width=12)
+        dpg.add_button(label="СБРОС", width=70,
+                       callback=lambda: _chain_reset())
+        dpg.add_spacer(width=8)
+        dpg.add_text("← Тащи тайлы чтобы изменить порядок рендера",
+                     color=_GL_DIM)
+    dpg.add_spacer(height=6)
 
-        for idx, kind in enumerate(_CHAIN_ORDER):
-            state = _FX_STATE.get(kind, "off")
-            col = {
-                "off":    _GL_DIM,
-                "on":     _GL_GREEN,
-                "random": _GL_MAGENTA,
-                "locked": _GL_CYAN,
-            }.get(state, _GL_TEXT)
-            label = EFFECT_LABELS_RU.get(kind, kind)
-            with dpg.group(horizontal=True, tag=f"chain_row_{idx}"):
-                dpg.add_text(f"{idx+1:02d}. {label}",
-                             tag=f"chain_name_{idx}", color=col)
-                dpg.add_spacer(width=8)
-                dpg.add_button(label="↑", width=26,
-                               user_data=(idx, -1),
-                               callback=lambda s, a, u: _chain_move(u[0], u[1]))
-                dpg.add_button(label="↓", width=26,
-                               user_data=(idx, +1),
-                               callback=lambda s, a, u: _chain_move(u[0], u[1]))
+    n = len(_CHAIN_ORDER)
+    for row_start in range(0, n, _TILES_PER_ROW):
+        with dpg.group(horizontal=True):
+            for slot in range(row_start, min(row_start + _TILES_PER_ROW, n)):
+                kind  = _CHAIN_ORDER[slot]
+                state = _FX_STATE.get(kind, "off")
+                abbr  = _FX_ABBR.get(kind, kind[:5].upper())
+                tag   = f"chain_tile_{slot}"
+
+                dpg.add_button(
+                    label=f"{slot+1:02d}\n{abbr}",
+                    tag=tag,
+                    width=_TILE_W, height=_TILE_H,
+                    drop_callback=_make_chain_drop_cb(slot),
+                )
+                if _BTN_THEMES:
+                    theme = _BTN_THEMES.get(state)
+                    if theme:
+                        dpg.bind_item_theme(tag, theme)
+
+                with dpg.drag_payload(parent=tag, drag_data=slot,
+                                      payload_type="CHAIN_TILE"):
+                    dpg.add_text(f"{slot+1}·{abbr}")
+
+                dpg.add_spacer(width=3)
+        dpg.add_spacer(height=3)
 
 
 def _build_mod_matrix_section():
@@ -4468,8 +4479,6 @@ def main() -> int:
         _build_blob_section()
         dpg.add_spacer(height=2)
         _build_mod_matrix_section()
-        dpg.add_spacer(height=2)
-        _build_effect_chain_section()
 
         # ── action bar ──────────────────────────────────────────────────────
         _build_action_bar()
