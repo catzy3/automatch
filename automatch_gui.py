@@ -49,6 +49,8 @@ _FX_SHORT = {
     "color_posterize":      "Posterize",
     "swirl":                "Swirl",
     "iridescent_foil":      "Iridescent Foil",
+    "motion_blur":          "Motion Blur",
+    "advanced_glitch":      "Advanced Glitch",
 }
 
 # Set by the entry point (shi_o_kiku.py) to the directory where the user
@@ -324,6 +326,8 @@ _FX_ABBR = {
     "color_posterize":      "POST",
     "swirl":                "SWIRL",
     "iridescent_foil":     "IRDSC",
+    "motion_blur":         "MBLUR",
+    "advanced_glitch":     "AGLCH",
 }
 
 # GL1TCH palette (effects panel only; rest of GUI stays deep-navy)
@@ -588,9 +592,15 @@ def _refresh_side_panel():
     # Distort sub-panel only when distort is selected
     if dpg.does_item_exist("fx_side_distort"):
         dpg.configure_item("fx_side_distort", show=(kind == "distort"))
-    # New-effect sub-panels (one per kind)
-    for _k in ("thermal", "cellular", "elastic_grid", "crt_monitor",
-               "glitch", "modulate", "pixelate"):
+    # All remaining sub-panels — show the matching one, hide the rest
+    for _k in (
+        "thermal", "cellular", "elastic_grid", "crt_monitor",
+        "glitch", "modulate", "pixelate",
+        "vhs", "crt", "wave_warp", "datamosh", "motion_trails",
+        "rgb_split", "duotone", "luma_key", "edges", "pixel_swap",
+        "found_footage", "chromatic_aberration", "color_posterize",
+        "swirl", "iridescent_foil", "motion_blur", "advanced_glitch",
+    ):
         _tag = f"fx_side_{_k}"
         if dpg.does_item_exist(_tag):
             dpg.configure_item(_tag, show=(kind == _k))
@@ -2915,6 +2925,303 @@ def _build_effects_section():
                                        tag="am_dither_color_b",
                                        default_value=(140, 255, 114, 255),
                                        no_alpha=True, no_inputs=True)
+
+            # ── VHS ──
+            with dpg.group(tag="fx_side_vhs", show=False):
+                dpg.add_separator()
+                dpg.add_text("VHS", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Трекинг", tag="am_vhs_tracking_noise",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Джиттер строк", tag="am_vhs_line_jitter",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Хрома-блюр", tag="am_vhs_chroma_blur",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Потеря цвета", tag="am_vhs_color_loss",
+                                         default_value=0.2, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_slider_float(label="Head-switch шум", tag="am_vhs_head_switch",
+                                     default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── CRT ──
+            with dpg.group(tag="fx_side_crt", show=False):
+                dpg.add_separator()
+                dpg.add_text("CRT scanlines", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Скан-линии", tag="am_crt_scanline",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Маска", tag="am_crt_mask",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Кривизна", tag="am_crt_curvature",
+                                         default_value=0.2, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Виньетка", tag="am_crt_vignette",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_slider_float(label="Послесвечение", tag="am_crt_persistence",
+                                     default_value=0.0, min_value=0.0, max_value=0.95, width=170, format="%.2f")
+
+            # ── Wave Warp ──
+            with dpg.group(tag="fx_side_wave_warp", show=False):
+                dpg.add_separator()
+                dpg.add_text("Wave Warp", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Амплитуда 1", tag="am_ww_amp1",
+                                         default_value=0.03, min_value=0.0, max_value=0.2, width=170, format="%.3f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Частота 1", tag="am_ww_freq1",
+                                         default_value=3.0, min_value=0.1, max_value=20.0, width=170, format="%.1f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Скорость 1", tag="am_ww_speed1",
+                                         default_value=1.0, min_value=0.0, max_value=5.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Хром. аберр.", tag="am_ww_chromatic",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Угол", tag="am_ww_angle",
+                                         default_value=0.0, min_value=0.0, max_value=6.28, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_checkbox(label="Полярный режим", tag="am_ww_polar", default_value=False)
+
+            # ── Datamosh ──
+            with dpg.group(tag="fx_side_datamosh", show=False):
+                dpg.add_separator()
+                dpg.add_text("Datamosh", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Сила", tag="am_dm_strength",
+                                         default_value=0.85, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Заморозка", tag="am_dm_freeze",
+                                         default_value=0.45, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Период (с)", tag="am_dm_period",
+                                         default_value=3.5, min_value=0.5, max_value=10.0, width=170, format="%.1f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Хаос", tag="am_dm_chaos",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_combo(items=["0 · Legacy P-frame", "1 · Optical-flow mosh"],
+                              default_value="1 · Optical-flow mosh",
+                              tag="am_dm_algo_combo", label="Algo", width=240)
+
+            # ── Motion Trails ──
+            with dpg.group(tag="fx_side_motion_trails", show=False):
+                dpg.add_separator()
+                dpg.add_text("Motion Trails", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Затухание", tag="am_mt_decay",
+                                         default_value=0.85, min_value=0.0, max_value=0.99, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Порог", tag="am_mt_threshold",
+                                         default_value=0.15, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Хаос", tag="am_mt_chaos",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Вторич. трейл", tag="am_mt_secondary",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── RGB Split ──
+            with dpg.group(tag="fx_side_rgb_split", show=False):
+                dpg.add_separator()
+                dpg.add_text("RGB Split", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Смещение", tag="am_rgb_offset",
+                                         default_value=0.01, min_value=0.0, max_value=0.05, width=170, format="%.3f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Угол", tag="am_rgb_angle",
+                                         default_value=0.0, min_value=0.0, max_value=6.28, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Волна", tag="am_rgb_wave_freq",
+                                         default_value=0.0, min_value=0.0, max_value=10.0, width=170, format="%.1f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Блюр каналов", tag="am_rgb_blur",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Duotone ──
+            with dpg.group(tag="fx_side_duotone", show=False):
+                dpg.add_separator()
+                dpg.add_text("Duotone", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Сила", tag="am_duo_strength",
+                                         default_value=0.8, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Midpoint", tag="am_duo_midpoint",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_color_edit(label="Accent colour", tag="am_duo_accent",
+                                   default_value=(164, 255, 90, 255), no_alpha=True, no_inputs=True)
+
+            # ── Luma Key ──
+            with dpg.group(tag="fx_side_luma_key", show=False):
+                dpg.add_separator()
+                dpg.add_text("Luma Key", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Lift", tag="am_lk_lift",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Gain", tag="am_lk_gain",
+                                         default_value=1.0, min_value=0.0, max_value=2.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Gamma", tag="am_lk_gamma",
+                                         default_value=1.0, min_value=0.1, max_value=3.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_checkbox(label="Инверт", tag="am_lk_invert", default_value=False)
+
+            # ── Edges ──
+            with dpg.group(tag="fx_side_edges", show=False):
+                dpg.add_separator()
+                dpg.add_text("Edges (контуры)", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Порог", tag="am_ed_threshold",
+                                         default_value=0.1, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Мягкость", tag="am_ed_soften",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_color_edit(label="Цвет контура", tag="am_ed_color",
+                                   default_value=(164, 255, 90, 255), no_alpha=True, no_inputs=True)
+
+            # ── Pixel Swap ──
+            with dpg.group(tag="fx_side_pixel_swap", show=False):
+                dpg.add_separator()
+                dpg.add_text("Pixel Swap", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Размер блока", tag="am_ps_block_size",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Шанс", tag="am_ps_chance",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_slider_float(label="Дрейф", tag="am_ps_drift",
+                                     default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Found Footage ──
+            with dpg.group(tag="fx_side_found_footage", show=False):
+                dpg.add_separator()
+                dpg.add_text("Found Footage", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Выпадения", tag="am_ff_dropout_density",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Сила выпад.", tag="am_ff_dropout_strength",
+                                         default_value=0.7, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Варп строк", tag="am_ff_warp_amount",
+                                         default_value=0.008, min_value=0.0, max_value=0.03, width=170, format="%.3f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Призрак", tag="am_ff_ghost_opacity",
+                                         default_value=0.12, min_value=0.0, max_value=0.5, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Хрома-блид", tag="am_ff_chroma_bleed",
+                                         default_value=2.5, min_value=0.0, max_value=8.0, width=170, format="%.1f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Luma crush", tag="am_ff_luma_crush",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Chromatic Aberration ──
+            with dpg.group(tag="fx_side_chromatic_aberration", show=False):
+                dpg.add_separator()
+                dpg.add_text("Хром. Аберрация", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Смещение", tag="am_ca_offset",
+                                         default_value=0.012, min_value=0.0, max_value=0.05, width=170, format="%.3f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Радиальность", tag="am_ca_radial",
+                                         default_value=0.8, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Угол (рад)", tag="am_ca_angle",
+                                         default_value=0.0, min_value=0.0, max_value=6.28, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Спин", tag="am_ca_spin",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Color Posterize ──
+            with dpg.group(tag="fx_side_color_posterize", show=False):
+                dpg.add_separator()
+                dpg.add_text("Постеризация", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Уровни", tag="am_post_levels",
+                                         default_value=6.0, min_value=2.0, max_value=32.0, width=170, format="%.0f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Dither mix", tag="am_post_dither_mix",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_combo(items=["0 · Luma", "1 · Per-channel", "2 · Palette snap"],
+                              default_value="0 · Luma",
+                              tag="am_post_color_mode_combo", label="Режим", width=220)
+
+            # ── Swirl ──
+            with dpg.group(tag="fx_side_swirl", show=False):
+                dpg.add_separator()
+                dpg.add_text("Swirl (вихрь)", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Сила", tag="am_swirl_strength",
+                                         default_value=3.0, min_value=0.0, max_value=10.0, width=170, format="%.1f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Радиус", tag="am_swirl_radius",
+                                         default_value=0.5, min_value=0.1, max_value=1.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Центр X", tag="am_swirl_cx",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Центр Y", tag="am_swirl_cy",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_slider_float(label="Анимация", tag="am_swirl_animate",
+                                     default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Iridescent Foil ──
+            with dpg.group(tag="fx_side_iridescent_foil", show=False):
+                dpg.add_separator()
+                dpg.add_text("Iridescent Foil", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Диапазон Hue", tag="am_ir_hue_range",
+                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Скорость", tag="am_ir_speed",
+                                         default_value=0.4, min_value=0.0, max_value=2.0, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Metallic", tag="am_ir_metallic",
+                                         default_value=0.6, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Масштаб", tag="am_ir_scale",
+                                         default_value=1.5, min_value=0.5, max_value=4.0, width=170, format="%.1f")
+                dpg.add_slider_float(label="Прозрачность", tag="am_ir_opacity",
+                                     default_value=0.7, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+
+            # ── Motion Blur ──
+            with dpg.group(tag="fx_side_motion_blur", show=False):
+                dpg.add_separator()
+                dpg.add_text("Motion Blur", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Длина", tag="am_mb_length",
+                                         default_value=0.012, min_value=0.0, max_value=0.03, width=170, format="%.3f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Угол (рад)", tag="am_mb_angle",
+                                         default_value=0.0, min_value=0.0, max_value=6.28, width=170, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Радиальный", tag="am_mb_radial",
+                                         default_value=0.0, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Сэмплов", tag="am_mb_samples",
+                                         default_value=8.0, min_value=4.0, max_value=16.0, width=170, format="%.0f")
+
+            # ── Advanced Glitch ──
+            with dpg.group(tag="fx_side_advanced_glitch", show=False):
+                dpg.add_separator()
+                dpg.add_text("Advanced Glitch", color=_GL_MAGENTA)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Размер блока", tag="am_ag_block_size",
+                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Сдвиг", tag="am_ag_shift_amount",
+                                         default_value=0.04, min_value=0.0, max_value=0.1, width=170, format="%.3f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Шанс глюка", tag="am_ag_chance",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Цвет сплит", tag="am_ag_color_shift",
+                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
+                dpg.add_slider_float(label="Скорость", tag="am_ag_speed",
+                                     default_value=2.0, min_value=0.0, max_value=4.0, width=170, format="%.1f")
 
     dpg.add_spacer(height=4)
     dpg.add_text(

@@ -438,7 +438,7 @@ USER_EFFECTS: tuple = (
     "dither", "rgb_split", "edges", "pixel_swap", "kaleidoscope", "slit_scan",
     "distort", "thermal", "cellular", "elastic_grid", "crt_monitor",
     "found_footage", "chromatic_aberration", "color_posterize", "swirl",
-    "iridescent_foil",
+    "iridescent_foil", "motion_blur", "advanced_glitch",
 )
 
 # Effects whose wet/dry mix slider is hidden — always render at full strength.
@@ -475,6 +475,8 @@ EFFECT_LABELS_RU: dict = {
     "color_posterize":       "Постеризация (палитра)",
     "swirl":                 "Вихрь (swirl)",
     "iridescent_foil":       "Голографическая фольга",
+    "motion_blur":           "Смаз движения (motion blur)",
+    "advanced_glitch":       "Advanced Glitch (горизонт.)",
 }
 
 
@@ -2115,7 +2117,7 @@ class OffscreenRenderer:
             "thermal", "cellular", "elastic_grid", "crt_monitor", "glitch",
             "modulate", "pixelate",
             "found_footage", "chromatic_aberration", "color_posterize", "swirl",
-            "iridescent_foil",
+            "iridescent_foil", "motion_blur", "advanced_glitch",
             "final",
         ]
         self.progs = {}
@@ -2716,12 +2718,13 @@ class OffscreenRenderer:
             U("u_jitter",     getattr(params, "eg_jitter",     0.5))
             U("u_noise_mode", getattr(params, "eg_noise_mode", 0.0))
         elif kind == "crt_monitor":
-            U("u_curvature",  getattr(params, "crtm_curvature",  0.30))
-            U("u_scanline",   getattr(params, "crtm_scanline",   0.50))
-            U("u_grille",     getattr(params, "crtm_grille",     0.40))
-            U("u_vignette",   getattr(params, "crtm_vignette",   0.40))
-            U("u_bloom",      getattr(params, "crtm_bloom",      0.30))
-            U("u_aberration", getattr(params, "crtm_aberration", 0.50))
+            U("u_curvature",      getattr(params, "crtm_curvature",      0.30))
+            U("u_scanline",       getattr(params, "crtm_scanline",       0.50))
+            U("u_grille",         getattr(params, "crtm_grille",         0.40))
+            U("u_vignette",       getattr(params, "crtm_vignette",       0.40))
+            U("u_bloom",          getattr(params, "crtm_bloom",          0.30))
+            U("u_aberration",     getattr(params, "crtm_aberration",     0.50))
+            U("u_aberration_mode",getattr(params, "crtm_aberration_mode",0.0))
         elif kind == "glitch":
             U("u_block_size",    getattr(params, "glitch_block_size",    0.30))
             U("u_drop_chance",   getattr(params, "glitch_drop_chance",   0.30))
@@ -2765,6 +2768,19 @@ class OffscreenRenderer:
             U("u_metallic",  getattr(params, "ir_metallic",  0.6))
             U("u_scale",     getattr(params, "ir_scale",     1.5))
             U("u_opacity",   getattr(params, "ir_opacity",   0.7))
+        elif kind == "motion_blur":
+            U("u_samples",  getattr(params, "mb_samples",  8.0))
+            U("u_length",   getattr(params, "mb_length",   0.012))
+            U("u_angle",    getattr(params, "mb_angle",    0.0))
+            U("u_radial",   getattr(params, "mb_radial",   0.0))
+            U("u_center_x", getattr(params, "mb_cx",       0.5))
+            U("u_center_y", getattr(params, "mb_cy",       0.5))
+        elif kind == "advanced_glitch":
+            U("u_block_size",   getattr(params, "ag_block_size",   0.3))
+            U("u_shift_amount", getattr(params, "ag_shift_amount", 0.04))
+            U("u_chance",       getattr(params, "ag_chance",       0.4))
+            U("u_color_shift",  getattr(params, "ag_color_shift",  0.4))
+            U("u_speed",        getattr(params, "ag_speed",        2.0))
             U("u_fb_mode",  getattr(params, "pixelate_fb_mode",  0.0))
 
 

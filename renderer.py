@@ -167,6 +167,8 @@ class RenderThread(threading.Thread):
             "ascii_mosaic":          ctx.program(vertex_shader=vert, fragment_shader=_load("ascii_mosaic.frag")),
             "found_footage":         ctx.program(vertex_shader=vert, fragment_shader=_load("found_footage.frag")),
             "iridescent_foil":       ctx.program(vertex_shader=vert, fragment_shader=_load("iridescent_foil.frag")),
+            "motion_blur":           ctx.program(vertex_shader=vert, fragment_shader=_load("motion_blur.frag")),
+            "advanced_glitch":       ctx.program(vertex_shader=vert, fragment_shader=_load("advanced_glitch.frag")),
             "chromatic_aberration":  ctx.program(vertex_shader=vert, fragment_shader=_load("chromatic_aberration.frag")),
             "color_posterize":       ctx.program(vertex_shader=vert, fragment_shader=_load("color_posterize.frag")),
             "swirl":                 ctx.program(vertex_shader=vert, fragment_shader=_load("swirl.frag")),
