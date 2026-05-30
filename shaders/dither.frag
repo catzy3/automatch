@@ -157,8 +157,10 @@ void main() {
         float pb = (ch > 0.001) ? circuit_pattern(grid_uv, u_time, ch * 4.0) : pr;
         pat = vec3(pr, pg, pb);
     } else if (algo == 1) {
-        // ─── Bayer 4×4 ordered dither ───
-        ivec2 ip = ivec2(grid_uv);
+        // ─── Bayer 4×4 ordered dither (animated: matrix shifts 1px/frame) ───
+        // time-varying spatial offset creates the demoscene "flickering dither"
+        ivec2 anim = ivec2(int(u_time * 24.0) & 3, int(u_time * 17.0) & 3);
+        ivec2 ip = ivec2(grid_uv) + anim;
         float p = bayer4(ip);
         if (u_chromatic > 0.001) {
             int sh = int(u_chromatic * 3.0 + 0.5);
@@ -169,8 +171,9 @@ void main() {
             pat = vec3(p);
         }
     } else if (algo == 2) {
-        // ─── Bayer 8×8 ordered dither ───
-        ivec2 ip = ivec2(grid_uv);
+        // ─── Bayer 8×8 ordered dither (animated: same trick, larger period) ───
+        ivec2 anim = ivec2(int(u_time * 24.0) & 7, int(u_time * 17.0) & 7);
+        ivec2 ip = ivec2(grid_uv) + anim;
         float p = bayer8(ip);
         if (u_chromatic > 0.001) {
             int sh = int(u_chromatic * 5.0 + 0.5);
