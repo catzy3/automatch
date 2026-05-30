@@ -284,6 +284,10 @@ class AutoEditSettings:
     # "off"    — force disabled
     # "random" — per-cut 50/50 enabled, mix follows the same rule
     effect_overrides: dict = field(default_factory=dict)
+    # Custom effect chain order — list of effect kind strings.
+    # Empty list = use default USER_EFFECTS order.
+    # When non-empty, snap.effects is reordered to match before each render.
+    effect_chain: list = field(default_factory=list)
     # Brief text cards shown at the start of some cuts.
     text_cards:  TextCardSettings  = field(default_factory=TextCardSettings)
     blob_track:  BlobTrackSettings = field(default_factory=BlobTrackSettings)
@@ -3319,6 +3323,26 @@ def _load_audio_array(path: Path, offset: float, duration: float,
     return raw.reshape(-1, 2), sr
 
 
+def _apply_effect_chain(snap, chain: list) -> None:
+    """Reorder snap.effects so enabled effects follow the user's chain order.
+
+    Effects in `chain` come first (in chain order), remaining effects follow
+    in their original order.  Disabled effects are kept — the renderer skips
+    them naturally.
+    """
+    by_kind = {e.kind: e for e in snap.effects}
+    seen = set()
+    ordered = []
+    for kind in chain:
+        if kind in by_kind and kind not in seen:
+            ordered.append(by_kind[kind])
+            seen.add(kind)
+    for e in snap.effects:
+        if e.kind not in seen:
+            ordered.append(e)
+    snap.effects = ordered
+
+
 def preview(audio_path: Path, media_folder: Path,
             settings: AutoEditSettings,
             progress: Optional[Callable[[float, str], None]] = None) -> None:
@@ -3450,6 +3474,9 @@ def preview(audio_path: Path, media_folder: Path,
                 snap.ascii_text = settings.ascii_text
             except Exception:
                 pass
+        # Reorder effects according to user-defined chain.
+        if settings.effect_chain:
+            _apply_effect_chain(snap, settings.effect_chain)
         cut_snapshots.append(snap)
 
     if cut_snapshots:
@@ -3868,6 +3895,8 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
                 snap.ascii_text = settings.ascii_text
             except Exception:
                 pass
+        if settings.effect_chain:
+            _apply_effect_chain(snap, settings.effect_chain)
         cut_snapshots.append(snap)
 
     # diagnostic: confirm palette actually landed in the first snapshot

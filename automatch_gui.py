@@ -1285,6 +1285,8 @@ def _dump_session() -> dict:
             "text_cards":          asdict(s.text_cards),
             "blob_track":          asdict(s.blob_track),
             "mod_config":          s.mod_config,
+            "effect_chain":        s.effect_chain,
+            "chain_enabled":       bool(dpg.get_value("chain_enabled")) if dpg.does_item_exist("chain_enabled") else False,
         },
         "fx_state": dict(_FX_STATE),
     }
@@ -1419,6 +1421,12 @@ def _apply_session(data: dict) -> None:
 
     # ── Mod Matrix ──
     _apply_mod_config(s.get("mod_config", {}) or {})
+
+    # ── Effect Chain ──
+    saved_chain = s.get("effect_chain") or []
+    _apply_effect_chain_gui(saved_chain)
+    if s.get("chain_enabled") and dpg.does_item_exist("chain_enabled"):
+        dpg.set_value("chain_enabled", True)
 
     # ── text cards: full restore (enabled / lines / vibe / colours / …) ──
     _tc = s.get("text_cards", {}) or {}
@@ -1677,6 +1685,7 @@ def _collect_settings() -> AutoEditSettings:
         text_cards           = _collect_text_cards(),
         blob_track           = _collect_blob_track(),
         mod_config           = _collect_mod_config(),
+        effect_chain         = _collect_effect_chain(),
     )
 
 
@@ -3914,6 +3923,110 @@ def _clear_mod_config() -> None:
         _s(f"mod_r{i}_comb",  "add")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Effect Chain — user-defined render order
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CHAIN_ORDER: list = list(USER_EFFECTS)   # mutable, persists in session
+
+
+def _collect_effect_chain() -> list:
+    """Return the current chain order as a list of effect kind strings.
+    Returns [] if chain mode is disabled (use default order)."""
+    if not dpg.does_item_exist("chain_enabled") or not dpg.get_value("chain_enabled"):
+        return []
+    return list(_CHAIN_ORDER)
+
+
+def _apply_effect_chain_gui(chain: list) -> None:
+    """Restore chain order from a saved list."""
+    global _CHAIN_ORDER
+    if not chain:
+        _CHAIN_ORDER = list(USER_EFFECTS)
+    else:
+        seen = set(chain)
+        _CHAIN_ORDER = [k for k in chain if k in set(USER_EFFECTS)]
+        for k in USER_EFFECTS:
+            if k not in seen:
+                _CHAIN_ORDER.append(k)
+    _refresh_chain_ui()
+
+
+def _refresh_chain_ui():
+    """Rebuild the chain rows to reflect current _CHAIN_ORDER."""
+    for idx, kind in enumerate(_CHAIN_ORDER):
+        name_tag = f"chain_name_{idx}"
+        if dpg.does_item_exist(name_tag):
+            state = _FX_STATE.get(kind, "off")
+            col = {
+                "off":    _GL_DIM,
+                "on":     _GL_GREEN,
+                "random": _GL_MAGENTA,
+                "locked": _GL_CYAN,
+            }.get(state, _GL_TEXT)
+            label = EFFECT_LABELS_RU.get(kind, kind)
+            dpg.configure_item(name_tag,
+                               default_value=f"{idx+1:02d}. {label}",
+                               color=col)
+
+
+def _chain_move(idx: int, direction: int):
+    """Move effect at idx up (-1) or down (+1) in _CHAIN_ORDER."""
+    global _CHAIN_ORDER
+    n = len(_CHAIN_ORDER)
+    new_idx = idx + direction
+    if new_idx < 0 or new_idx >= n:
+        return
+    _CHAIN_ORDER[idx], _CHAIN_ORDER[new_idx] = _CHAIN_ORDER[new_idx], _CHAIN_ORDER[idx]
+    _refresh_chain_ui()
+
+
+def _chain_reset():
+    global _CHAIN_ORDER
+    _CHAIN_ORDER = list(USER_EFFECTS)
+    _refresh_chain_ui()
+
+
+def _build_effect_chain_section():
+    with dpg.collapsing_header(label="  Effect Chain (порядок рендера)",
+                               default_open=False):
+        dpg.add_checkbox(label="Включить кастомный порядок",
+                         tag="chain_enabled", default_value=False)
+        dpg.add_text(
+            "Включи, чтобы эффекты применялись в порядке из этого списка. "
+            "Выключен = стандартный порядок (VHS→Dither→…).",
+            color=_GL_DIM, wrap=-1,
+        )
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="СБРОС ПОРЯДКА", width=130,
+                           callback=lambda: _chain_reset())
+            dpg.add_spacer(width=8)
+            dpg.add_text("← Порядок сверху вниз = первый → последний в цепочке",
+                         color=_GL_DIM)
+        dpg.add_spacer(height=6)
+
+        for idx, kind in enumerate(_CHAIN_ORDER):
+            state = _FX_STATE.get(kind, "off")
+            col = {
+                "off":    _GL_DIM,
+                "on":     _GL_GREEN,
+                "random": _GL_MAGENTA,
+                "locked": _GL_CYAN,
+            }.get(state, _GL_TEXT)
+            label = EFFECT_LABELS_RU.get(kind, kind)
+            with dpg.group(horizontal=True, tag=f"chain_row_{idx}"):
+                dpg.add_text(f"{idx+1:02d}. {label}",
+                             tag=f"chain_name_{idx}", color=col)
+                dpg.add_spacer(width=8)
+                dpg.add_button(label="↑", width=26,
+                               user_data=(idx, -1),
+                               callback=lambda s, a, u: _chain_move(u[0], u[1]))
+                dpg.add_button(label="↓", width=26,
+                               user_data=(idx, +1),
+                               callback=lambda s, a, u: _chain_move(u[0], u[1]))
+
+
 def _build_mod_matrix_section():
     _wave_labels  = list(_MOD_LFO_WAVE_LABELS.values())
     _src_labels   = list(_MOD_SOURCE_LABELS.values())
@@ -4355,6 +4468,8 @@ def main() -> int:
         _build_blob_section()
         dpg.add_spacer(height=2)
         _build_mod_matrix_section()
+        dpg.add_spacer(height=2)
+        _build_effect_chain_section()
 
         # ── action bar ──────────────────────────────────────────────────────
         _build_action_bar()
