@@ -26,6 +26,7 @@ from automatch import (
     audio_duration,
     preview as automatch_preview, run as automatch_run,
 )
+from automatch_mod import LFO_WAVES, MOD_SOURCES, COMBINE_MODES, MOD_MODES, LFO_NAMES
 
 # ── short labels for the compact effects table ───────────────────────────────
 _FX_SHORT = {
@@ -1251,6 +1252,7 @@ def _dump_session() -> dict:
             "effect_overrides":    s.effect_overrides,
             "text_cards":          asdict(s.text_cards),
             "blob_track":          asdict(s.blob_track),
+            "mod_config":          s.mod_config,
         },
         "fx_state": dict(_FX_STATE),
     }
@@ -1382,6 +1384,9 @@ def _apply_session(data: dict) -> None:
 
     # ── Blob track (full restore: incl. tracker_mode) ──
     _apply_blob_track(s.get("blob_track", {}) or {})
+
+    # ── Mod Matrix ──
+    _apply_mod_config(s.get("mod_config", {}) or {})
 
     # ── text cards: full restore (enabled / lines / vibe / colours / …) ──
     _tc = s.get("text_cards", {}) or {}
@@ -1639,6 +1644,7 @@ def _collect_settings() -> AutoEditSettings:
         effect_overrides     = _collect_effect_overrides(),
         text_cards           = _collect_text_cards(),
         blob_track           = _collect_blob_track(),
+        mod_config           = _collect_mod_config(),
     )
 
 
@@ -3429,6 +3435,230 @@ def _build_blob_section():
                           label="Формат", width=200)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ModMatrix GUI (Slice 2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_MOD_N_ROUTES = 8
+
+# Curated target param list shown in route combos
+_MOD_PARAM_TARGETS = (
+    # effect mixes (generated at build time via USER_EFFECTS)
+    *[f"effect_mix_{k}" for k in USER_EFFECTS],
+    # common state params
+    "vhs_noise", "vhs_tracking", "vhs_color_bleed",
+    "wave_warp_strength", "wave_warp_speed", "wave_warp_scale",
+    "datamosh_strength", "datamosh_chaos",
+    "pixel_sort_threshold", "pixel_sort_length",
+    "distort_scale", "distort_speed",
+    "rgb_split_offset", "rgb_split_drift",
+    "ascii_cell_size",
+    "dither_levels", "dither_jitter",
+    "crt_deflection", "crt_convergence",
+    "heavy_grain_amount", "heavy_grain_size",
+    "motion_trails_decay",
+    "kaleidoscope_segments", "kaleidoscope_spin",
+    "slit_speed", "slit_feedback",
+    "thermal_palette",
+    "cellular_speed",
+    "elastic_grid_strength",
+)
+
+_MOD_LFO_WAVE_LABELS = {
+    "sine": "Sine", "triangle": "Tri", "saw": "Saw",
+    "square": "Square", "random": "Rand", "sh": "S&H",
+}
+_MOD_SOURCE_LABELS = {
+    "off": "off", "energy": "energy", "rms": "rms",
+    "beat": "beat", "downbeat": "downbeat", "drop": "drop",
+    "lfo1": "LFO1", "lfo2": "LFO2", "lfo3": "LFO3", "lfo4": "LFO4",
+}
+_MOD_COMBINE_LABELS = {"add": "add", "mul": "mul", "avg": "avg"}
+_MOD_MODE_LABELS    = {"bipolar": "bipolar", "absolute": "absolute"}
+
+
+def _collect_mod_config() -> dict:
+    """Read ModMatrix widgets → mod_config dict (JSON-serialisable)."""
+    if not dpg.does_item_exist("mod_enabled") or not dpg.get_value("mod_enabled"):
+        return {}
+
+    lfos = []
+    for i, name in enumerate(LFO_NAMES, 1):
+        wave_lbl = dpg.get_value(f"mod_lfo{i}_wave") if dpg.does_item_exist(f"mod_lfo{i}_wave") else "Sine"
+        wave = next((k for k, v in _MOD_LFO_WAVE_LABELS.items() if v == wave_lbl), "sine")
+        lfos.append({
+            "name": name,
+            "wave": wave,
+            "rate":               float(dpg.get_value(f"mod_lfo{i}_rate"))   if dpg.does_item_exist(f"mod_lfo{i}_rate")   else 1.0,
+            "beat_sync":          bool(dpg.get_value(f"mod_lfo{i}_sync"))    if dpg.does_item_exist(f"mod_lfo{i}_sync")    else False,
+            "phase":              float(dpg.get_value(f"mod_lfo{i}_phase"))  if dpg.does_item_exist(f"mod_lfo{i}_phase")  else 0.0,
+            "reset_on_downbeat":  bool(dpg.get_value(f"mod_lfo{i}_rdb"))    if dpg.does_item_exist(f"mod_lfo{i}_rdb")    else False,
+        })
+
+    routes = []
+    for i in range(1, _MOD_N_ROUTES + 1):
+        src_lbl = dpg.get_value(f"mod_r{i}_src") if dpg.does_item_exist(f"mod_r{i}_src") else "off"
+        src = next((k for k, v in _MOD_SOURCE_LABELS.items() if v == src_lbl), "off")
+        if src == "off":
+            continue
+        tgt = dpg.get_value(f"mod_r{i}_tgt") if dpg.does_item_exist(f"mod_r{i}_tgt") else ""
+        if not tgt:
+            continue
+        mode_lbl = dpg.get_value(f"mod_r{i}_mode") if dpg.does_item_exist(f"mod_r{i}_mode") else "bipolar"
+        mode = next((k for k, v in _MOD_MODE_LABELS.items() if v == mode_lbl), "bipolar")
+        comb_lbl = dpg.get_value(f"mod_r{i}_comb") if dpg.does_item_exist(f"mod_r{i}_comb") else "add"
+        combine = next((k for k, v in _MOD_COMBINE_LABELS.items() if v == comb_lbl), "add")
+        routes.append({
+            "target":  tgt,
+            "source":  src,
+            "mode":    mode,
+            "depth":   float(dpg.get_value(f"mod_r{i}_depth")) if dpg.does_item_exist(f"mod_r{i}_depth") else 0.2,
+            "curve":   float(dpg.get_value(f"mod_r{i}_curve")) if dpg.does_item_exist(f"mod_r{i}_curve") else 1.0,
+            "lo":      float(dpg.get_value(f"mod_r{i}_lo"))    if dpg.does_item_exist(f"mod_r{i}_lo")    else 0.0,
+            "hi":      float(dpg.get_value(f"mod_r{i}_hi"))    if dpg.does_item_exist(f"mod_r{i}_hi")    else 1.0,
+            "invert":  bool(dpg.get_value(f"mod_r{i}_inv"))    if dpg.does_item_exist(f"mod_r{i}_inv")   else False,
+            "combine": combine,
+        })
+
+    return {"lfos": lfos, "routes": routes}
+
+
+def _apply_mod_config(d: dict) -> None:
+    """Push saved mod_config dict back into ModMatrix widgets."""
+    if not d:
+        return
+    def _s(tag, val):
+        if dpg.does_item_exist(tag):
+            try: dpg.set_value(tag, val)
+            except Exception: pass
+
+    _s("mod_enabled", True)
+
+    for i, ld in enumerate(d.get("lfos", [])[:4], 1):
+        wave_lbl = _MOD_LFO_WAVE_LABELS.get(str(ld.get("wave", "sine")), "Sine")
+        _s(f"mod_lfo{i}_wave",  wave_lbl)
+        _s(f"mod_lfo{i}_rate",  float(ld.get("rate", 1.0)))
+        _s(f"mod_lfo{i}_sync",  bool(ld.get("beat_sync", False)))
+        _s(f"mod_lfo{i}_phase", float(ld.get("phase", 0.0)))
+        _s(f"mod_lfo{i}_rdb",   bool(ld.get("reset_on_downbeat", False)))
+
+    for i, rd in enumerate(d.get("routes", [])[:_MOD_N_ROUTES], 1):
+        src_lbl  = _MOD_SOURCE_LABELS.get(str(rd.get("source", "off")), "off")
+        mode_lbl = _MOD_MODE_LABELS.get(str(rd.get("mode", "bipolar")), "bipolar")
+        comb_lbl = _MOD_COMBINE_LABELS.get(str(rd.get("combine", "add")), "add")
+        _s(f"mod_r{i}_tgt",   str(rd.get("target", "")))
+        _s(f"mod_r{i}_src",   src_lbl)
+        _s(f"mod_r{i}_mode",  mode_lbl)
+        _s(f"mod_r{i}_depth", float(rd.get("depth", 0.2)))
+        _s(f"mod_r{i}_curve", float(rd.get("curve", 1.0)))
+        _s(f"mod_r{i}_lo",    float(rd.get("lo", 0.0)))
+        _s(f"mod_r{i}_hi",    float(rd.get("hi", 1.0)))
+        _s(f"mod_r{i}_inv",   bool(rd.get("invert", False)))
+        _s(f"mod_r{i}_comb",  comb_lbl)
+
+
+def _build_mod_matrix_section():
+    _wave_labels  = list(_MOD_LFO_WAVE_LABELS.values())
+    _src_labels   = list(_MOD_SOURCE_LABELS.values())
+    _mode_labels  = list(_MOD_MODE_LABELS.values())
+    _comb_labels  = list(_MOD_COMBINE_LABELS.values())
+    _tgt_labels   = list(_MOD_PARAM_TARGETS)
+
+    with dpg.collapsing_header(label="  Mod Matrix", default_open=False):
+        dpg.add_checkbox(label="Включить модуляцию", tag="mod_enabled",
+                         default_value=False)
+        dpg.add_spacer(height=6)
+
+        # ── LFOs ──────────────────────────────────────────────────────────────
+        dpg.add_text("LFO", color=_GL_MAGENTA)
+        dpg.add_separator()
+        for i in range(1, 5):
+            with dpg.group(horizontal=True):
+                dpg.add_text(f"LFO{i}", color=_GL_DIM)
+                dpg.add_spacer(width=4)
+                dpg.add_combo(items=_wave_labels,
+                              default_value="Sine",
+                              tag=f"mod_lfo{i}_wave",
+                              width=72, no_preview=False)
+                dpg.add_spacer(width=4)
+                dpg.add_slider_float(tag=f"mod_lfo{i}_rate",
+                                     default_value=1.0, min_value=0.01, max_value=32.0,
+                                     width=120, format="%.2f Hz")
+                dpg.add_spacer(width=4)
+                dpg.add_checkbox(label="Beat", tag=f"mod_lfo{i}_sync", default_value=False)
+                dpg.add_spacer(width=8)
+                dpg.add_slider_float(tag=f"mod_lfo{i}_phase",
+                                     default_value=0.0, min_value=0.0, max_value=1.0,
+                                     width=90, format="ph %.2f")
+                dpg.add_spacer(width=4)
+                dpg.add_checkbox(label="↓Beat", tag=f"mod_lfo{i}_rdb", default_value=False)
+            dpg.add_spacer(height=2)
+
+        dpg.add_spacer(height=6)
+
+        # ── Routes ────────────────────────────────────────────────────────────
+        dpg.add_text("ROUTES", color=_GL_CYAN)
+        dpg.add_separator()
+        with dpg.group(horizontal=True):
+            dpg.add_text("   Target", color=_GL_DIM)
+            dpg.add_spacer(width=148)
+            dpg.add_text("Source", color=_GL_DIM)
+            dpg.add_spacer(width=58)
+            dpg.add_text("Mode", color=_GL_DIM)
+            dpg.add_spacer(width=62)
+            dpg.add_text("Depth", color=_GL_DIM)
+            dpg.add_spacer(width=72)
+            dpg.add_text("Curve", color=_GL_DIM)
+            dpg.add_spacer(width=64)
+            dpg.add_text("Lo", color=_GL_DIM)
+            dpg.add_spacer(width=68)
+            dpg.add_text("Hi", color=_GL_DIM)
+        dpg.add_spacer(height=2)
+
+        for i in range(1, _MOD_N_ROUTES + 1):
+            with dpg.group(horizontal=True):
+                dpg.add_text(f"R{i}", color=_GL_DIM)
+                dpg.add_spacer(width=4)
+                dpg.add_combo(items=_tgt_labels,
+                              default_value="",
+                              tag=f"mod_r{i}_tgt",
+                              width=190)
+                dpg.add_spacer(width=4)
+                dpg.add_combo(items=_src_labels,
+                              default_value="off",
+                              tag=f"mod_r{i}_src",
+                              width=88)
+                dpg.add_spacer(width=4)
+                dpg.add_combo(items=_mode_labels,
+                              default_value="bipolar",
+                              tag=f"mod_r{i}_mode",
+                              width=88)
+                dpg.add_spacer(width=4)
+                dpg.add_slider_float(tag=f"mod_r{i}_depth",
+                                     default_value=0.2, min_value=0.0, max_value=1.0,
+                                     width=90, format="%.2f")
+                dpg.add_spacer(width=4)
+                dpg.add_slider_float(tag=f"mod_r{i}_curve",
+                                     default_value=1.0, min_value=0.1, max_value=4.0,
+                                     width=80, format="^%.1f")
+                dpg.add_spacer(width=4)
+                dpg.add_slider_float(tag=f"mod_r{i}_lo",
+                                     default_value=0.0, min_value=0.0, max_value=1.0,
+                                     width=80, format="%.2f")
+                dpg.add_spacer(width=4)
+                dpg.add_slider_float(tag=f"mod_r{i}_hi",
+                                     default_value=1.0, min_value=0.0, max_value=1.0,
+                                     width=80, format="%.2f")
+                dpg.add_spacer(width=4)
+                dpg.add_checkbox(label="inv", tag=f"mod_r{i}_inv", default_value=False)
+                dpg.add_spacer(width=4)
+                dpg.add_combo(items=_comb_labels,
+                              default_value="add",
+                              tag=f"mod_r{i}_comb",
+                              width=60)
+            dpg.add_spacer(height=1)
+
+
 # ── themed strip helpers (GL1TCH header + footer) ───────────────────────────
 _HEADER_THEME: int = 0
 _FOOTER_THEME: int = 0
@@ -3734,6 +3964,8 @@ def main() -> int:
         _build_text_cards_section()
         dpg.add_spacer(height=2)
         _build_blob_section()
+        dpg.add_spacer(height=2)
+        _build_mod_matrix_section()
 
         # ── action bar ──────────────────────────────────────────────────────
         _build_action_bar()
