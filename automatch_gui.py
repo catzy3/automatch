@@ -105,6 +105,15 @@ STATE = {
 # per-effect state lives here (not in DPG widget value)
 _FX_STATE: dict[str, str] = {k: "off" for k in USER_EFFECTS}
 
+# per-effect compositing mode (TouchDesigner-style Composite TOP). Index into
+# _BLEND_MODES; maps to EffectConfig.blend. 0 = cross/over = legacy behaviour.
+_FX_BLEND: dict[str, int] = {k: 0 for k in USER_EFFECTS}
+# Order MUST match EffectConfig.blend / shader _blendOp() indices.
+_BLEND_MODES = ("Cross (норм.)", "Add", "Screen", "Multiply", "Overlay",
+                "Difference", "Lighten", "Darken", "Dodge", "Burn", "Subtract")
+# Effects whose shader actually honours u_blend (experiment scope: FM + CRT).
+_BLEND_FX = ("crt", "crt_monitor")
+
 # which effect is currently focused in the side params panel
 _SELECTED_FX: str = ""
 
@@ -476,7 +485,9 @@ def _collect_effect_overrides() -> dict:
         mix_val = float(dpg.get_value(mix_tag)) if dpg.does_item_exist(mix_tag) else 0.65
         rnd_val = bool(dpg.get_value(rnd_tag))  if dpg.does_item_exist(rnd_tag) else False
         out_state = "on" if state == "locked" else state
-        overrides[kind] = {"state": out_state, "mix": mix_val, "random_mix": rnd_val}
+        overrides[kind] = {"state": out_state, "mix": mix_val,
+                           "random_mix": rnd_val,
+                           "blend": float(_FX_BLEND.get(kind, 0))}
     return overrides
 
 
@@ -539,6 +550,15 @@ def _refresh_side_panel():
             dpg.set_value(rnd_tag, bool(dpg.get_value(live)))
             dpg.configure_item(rnd_tag, enabled=(state in ("on", "random", "locked")))
 
+    # compositing-mode combo: only for effects whose shader honours u_blend
+    if dpg.does_item_exist("fx_side_blend"):
+        show_blend = kind in _BLEND_FX
+        dpg.configure_item("fx_side_blend", show=show_blend)
+        if show_blend:
+            idx = int(_FX_BLEND.get(kind, 0))
+            idx = max(0, min(len(_BLEND_MODES) - 1, idx))
+            dpg.set_value("fx_side_blend", _BLEND_MODES[idx])
+
     # dither sub-panel only when dither is selected
     if dpg.does_item_exist(dith_tag):
         dpg.configure_item(dith_tag, show=(kind == "dither"))
@@ -554,6 +574,15 @@ def _refresh_side_panel():
     # Slit-scan sub-panel only when slit_scan is selected
     if dpg.does_item_exist("fx_side_slit"):
         dpg.configure_item("fx_side_slit", show=(kind == "slit_scan"))
+    # Distort sub-panel only when distort is selected
+    if dpg.does_item_exist("fx_side_distort"):
+        dpg.configure_item("fx_side_distort", show=(kind == "distort"))
+    # New-effect sub-panels (one per kind)
+    for _k in ("thermal", "cellular", "elastic_grid", "crt_monitor",
+               "glitch", "modulate", "pixelate"):
+        _tag = f"fx_side_{_k}"
+        if dpg.does_item_exist(_tag):
+            dpg.configure_item(_tag, show=(kind == _k))
 
 
 def _on_side_mix_change(_s, value):
@@ -571,6 +600,16 @@ def _on_side_rnd_change(_s, value):
     live = f"fx_randmix_{_SELECTED_FX}"
     if dpg.does_item_exist(live):
         dpg.set_value(live, bool(value))
+
+
+def _on_side_blend_change(_s, value):
+    """Side-panel blend combo → store per-effect compositing mode index."""
+    if not _SELECTED_FX:
+        return
+    try:
+        _FX_BLEND[_SELECTED_FX] = _BLEND_MODES.index(value)
+    except ValueError:
+        _FX_BLEND[_SELECTED_FX] = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -743,6 +782,239 @@ def _apply_slit_params(d: dict) -> None:
                      ("slit_threshold", "am_slit_threshold")):
         if key in d and dpg.does_item_exist(tag):
             dpg.set_value(tag, float(d[key]))
+
+
+_DISTORT_KEYS = (
+    ("distort_xshift",    "am_distort_xshift"),
+    ("distort_yshift",    "am_distort_yshift"),
+    ("distort_threshold", "am_distort_threshold"),
+    ("distort_scale",     "am_distort_scale"),
+    ("distort_speed",     "am_distort_speed"),
+    ("distort_blur",      "am_distort_blur"),
+    ("distort_grain",     "am_distort_grain"),
+    ("distort_gamma",     "am_distort_gamma"),
+    ("distort_black",     "am_distort_black"),
+    ("distort_white",     "am_distort_white"),
+)
+
+
+_DISTORT_NOISE_MODES = ("Value-noise (fBM)", "Simplex (LYGIA)")
+
+
+def _collect_distort_params() -> dict:
+    """Distort overrides — procedural displacement-map controls."""
+    out: dict = {}
+    for key, tag in _DISTORT_KEYS:
+        if dpg.does_item_exist(tag):
+            out[key] = float(dpg.get_value(tag))
+    if dpg.does_item_exist("am_distort_noise_mode"):
+        out["distort_noise_mode"] = _combo_index("am_distort_noise_mode",
+                                                  _DISTORT_NOISE_MODES)
+    return out
+
+
+def _apply_distort_params(d: dict) -> None:
+    if not d:
+        return
+    for key, tag in _DISTORT_KEYS:
+        if key in d and dpg.does_item_exist(tag):
+            dpg.set_value(tag, float(d[key]))
+    if "distort_noise_mode" in d:
+        _set_combo_index("am_distort_noise_mode", _DISTORT_NOISE_MODES,
+                         d["distort_noise_mode"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  New-effect overrides (thermal / cellular / elastic_grid / crt_monitor /
+#  glitch / modulate).  Each follows the same field-name → widget-tag pattern as
+#  distort.  Discrete params use a combo (stored as the option index); cellular
+#  uses a colour picker for the living-cell tint.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_THERMAL_PALETTES = ("Infrared", "Ironbow", "Rainbow", "Arctic", "Heatmap (LYGIA)")
+_CA_MODES         = ("Life (B3/S23)", "Decay-diffusion")
+_MOD_MODES        = ("AM (амплитуда)", "FM (частота)", "Phase (фаза)", "RGB-полосы (радуга)")
+_EG_NOISE_MODES   = ("Hash (sin/cos)", "Simplex (LYGIA)")
+
+
+def _combo_index(tag: str, options: tuple) -> float:
+    """Return the selected combo option's index as a float (0.0 fallback)."""
+    if not dpg.does_item_exist(tag):
+        return 0.0
+    val = dpg.get_value(tag)
+    try:
+        return float(options.index(val))
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _set_combo_index(tag: str, options: tuple, idx) -> None:
+    if dpg.does_item_exist(tag):
+        i = max(0, min(len(options) - 1, int(round(float(idx)))))
+        dpg.set_value(tag, options[i])
+
+
+# (param field, widget tag) — plain float sliders only.
+_THERMAL_SLIDERS = (
+    ("thermal_gain",   "am_thermal_gain"),
+    ("thermal_gamma",  "am_thermal_gamma"),
+    ("thermal_levels", "am_thermal_levels"),
+)
+_ELASTIC_SLIDERS = (
+    ("eg_grid",     "am_eg_grid"),
+    ("eg_strength", "am_eg_strength"),
+    ("eg_speed",    "am_eg_speed"),
+    ("eg_jitter",   "am_eg_jitter"),
+)
+_CRTM_SLIDERS = (
+    ("crtm_curvature",  "am_crtm_curvature"),
+    ("crtm_scanline",   "am_crtm_scanline"),
+    ("crtm_grille",     "am_crtm_grille"),
+    ("crtm_vignette",   "am_crtm_vignette"),
+    ("crtm_bloom",      "am_crtm_bloom"),
+    ("crtm_aberration", "am_crtm_aberration"),
+)
+_GLITCH_SLIDERS = (
+    ("glitch_block_size",    "am_glitch_block_size"),
+    ("glitch_drop_chance",   "am_glitch_drop_chance"),
+    ("glitch_repeat_chance", "am_glitch_repeat_chance"),
+)
+_CA_SLIDERS = (
+    ("ca_cell",     "am_ca_cell"),
+    ("ca_rate",     "am_ca_rate"),
+    ("ca_seed_thr", "am_ca_seed_thr"),
+)
+_MOD_SLIDERS = (
+    ("mod_freq",   "am_mod_freq"),
+    ("mod_amount", "am_mod_amount"),
+    ("mod_speed",  "am_mod_speed"),
+    ("mod_axis",   "am_mod_axis"),
+)
+_PIXELATE_SLIDERS = (
+    ("pixelate_block",    "am_pixelate_block"),
+    ("pixelate_feedback", "am_pixelate_feedback"),
+    ("pixelate_zoom",     "am_pixelate_zoom"),
+    ("pixelate_drift",    "am_pixelate_drift"),
+)
+_PIXELATE_FB_MODES = ("Lighten (свечение)", "Add (сложение)", "Over (наложение)")
+
+
+def _collect_sliders(pairs) -> dict:
+    out: dict = {}
+    for key, tag in pairs:
+        if dpg.does_item_exist(tag):
+            out[key] = float(dpg.get_value(tag))
+    return out
+
+
+def _apply_sliders(pairs, d: dict) -> None:
+    for key, tag in pairs:
+        if key in d and dpg.does_item_exist(tag):
+            dpg.set_value(tag, float(d[key]))
+
+
+def _collect_thermal_params() -> dict:
+    out = _collect_sliders(_THERMAL_SLIDERS)
+    if dpg.does_item_exist("am_thermal_palette"):
+        out["thermal_palette"] = _combo_index("am_thermal_palette", _THERMAL_PALETTES)
+    return out
+
+
+def _apply_thermal_params(d: dict) -> None:
+    if not d:
+        return
+    _apply_sliders(_THERMAL_SLIDERS, d)
+    if "thermal_palette" in d:
+        _set_combo_index("am_thermal_palette", _THERMAL_PALETTES, d["thermal_palette"])
+
+
+def _collect_cellular_params() -> dict:
+    out = _collect_sliders(_CA_SLIDERS)
+    if dpg.does_item_exist("am_ca_mode"):
+        out["ca_mode"] = _combo_index("am_ca_mode", _CA_MODES)
+    if dpg.does_item_exist("am_ca_tint"):
+        r, g, b = _color_rgb01("am_ca_tint")
+        out["ca_tint_r"], out["ca_tint_g"], out["ca_tint_b"] = r, g, b
+    return out
+
+
+def _apply_cellular_params(d: dict) -> None:
+    if not d:
+        return
+    _apply_sliders(_CA_SLIDERS, d)
+    if "ca_mode" in d:
+        _set_combo_index("am_ca_mode", _CA_MODES, d["ca_mode"])
+    if all(k in d for k in ("ca_tint_r", "ca_tint_g", "ca_tint_b")) \
+            and dpg.does_item_exist("am_ca_tint"):
+        dpg.set_value("am_ca_tint",
+                      (int(float(d["ca_tint_r"]) * 255),
+                       int(float(d["ca_tint_g"]) * 255),
+                       int(float(d["ca_tint_b"]) * 255), 255))
+
+
+def _collect_elastic_grid_params() -> dict:
+    out = _collect_sliders(_ELASTIC_SLIDERS)
+    if dpg.does_item_exist("am_eg_noise_mode"):
+        out["eg_noise_mode"] = _combo_index("am_eg_noise_mode", _EG_NOISE_MODES)
+    return out
+
+
+def _apply_elastic_grid_params(d: dict) -> None:
+    if not d:
+        return
+    _apply_sliders(_ELASTIC_SLIDERS, d)
+    if "eg_noise_mode" in d:
+        _set_combo_index("am_eg_noise_mode", _EG_NOISE_MODES, d["eg_noise_mode"])
+
+
+def _collect_crt_monitor_params() -> dict:
+    return _collect_sliders(_CRTM_SLIDERS)
+
+
+def _apply_crt_monitor_params(d: dict) -> None:
+    if d:
+        _apply_sliders(_CRTM_SLIDERS, d)
+
+
+def _collect_glitch_params() -> dict:
+    return _collect_sliders(_GLITCH_SLIDERS)
+
+
+def _apply_glitch_params(d: dict) -> None:
+    if d:
+        _apply_sliders(_GLITCH_SLIDERS, d)
+
+
+def _collect_modulate_params() -> dict:
+    out = _collect_sliders(_MOD_SLIDERS)
+    if dpg.does_item_exist("am_mod_mode"):
+        out["mod_mode"] = _combo_index("am_mod_mode", _MOD_MODES)
+    return out
+
+
+def _apply_modulate_params(d: dict) -> None:
+    if not d:
+        return
+    _apply_sliders(_MOD_SLIDERS, d)
+    if "mod_mode" in d:
+        _set_combo_index("am_mod_mode", _MOD_MODES, d["mod_mode"])
+
+
+def _collect_pixelate_params() -> dict:
+    out = _collect_sliders(_PIXELATE_SLIDERS)
+    if dpg.does_item_exist("am_pixelate_fb_mode"):
+        out["pixelate_fb_mode"] = _combo_index("am_pixelate_fb_mode",
+                                               _PIXELATE_FB_MODES)
+    return out
+
+
+def _apply_pixelate_params(d: dict) -> None:
+    if not d:
+        return
+    _apply_sliders(_PIXELATE_SLIDERS, d)
+    if "pixelate_fb_mode" in d:
+        _set_combo_index("am_pixelate_fb_mode", _PIXELATE_FB_MODES,
+                         d["pixelate_fb_mode"])
 
 
 def _collect_ascii_text() -> str:
@@ -968,6 +1240,14 @@ def _dump_session() -> dict:
             "psort_params":        s.psort_params,
             "kaleido_params":      s.kaleido_params,
             "slit_params":         s.slit_params,
+            "distort_params":      s.distort_params,
+            "thermal_params":      s.thermal_params,
+            "cellular_params":     s.cellular_params,
+            "elastic_grid_params": s.elastic_grid_params,
+            "crt_monitor_params":  s.crt_monitor_params,
+            "glitch_params":       s.glitch_params,
+            "modulate_params":     s.modulate_params,
+            "pixelate_params":     s.pixelate_params,
             "effect_overrides":    s.effect_overrides,
             "text_cards":          asdict(s.text_cards),
             "blob_track":          asdict(s.blob_track),
@@ -1089,12 +1369,24 @@ def _apply_session(data: dict) -> None:
     # ── Kaleidoscope + slit-scan overrides ──
     _apply_kaleido_params(s.get("kaleido_params", {}) or {})
     _apply_slit_params(s.get("slit_params", {}) or {})
+    _apply_distort_params(s.get("distort_params", {}) or {})
+
+    # ── New effects overrides ──
+    _apply_thermal_params(s.get("thermal_params", {}) or {})
+    _apply_cellular_params(s.get("cellular_params", {}) or {})
+    _apply_elastic_grid_params(s.get("elastic_grid_params", {}) or {})
+    _apply_crt_monitor_params(s.get("crt_monitor_params", {}) or {})
+    _apply_glitch_params(s.get("glitch_params", {}) or {})
+    _apply_modulate_params(s.get("modulate_params", {}) or {})
+    _apply_pixelate_params(s.get("pixelate_params", {}) or {})
 
     # ── Blob track (full restore: incl. tracker_mode) ──
     _apply_blob_track(s.get("blob_track", {}) or {})
 
-    # ── text card font picker selection ──
+    # ── text cards: full restore (enabled / lines / vibe / colours / …) ──
     _tc = s.get("text_cards", {}) or {}
+    _apply_text_cards(_tc)
+    # font picker selection (label, not raw path) + live preview refresh
     if dpg.does_item_exist("tc_font"):
         dpg.set_value("tc_font", _font_path_to_label(_tc.get("font_path", "")))
         _refresh_tc_preview()
@@ -1120,6 +1412,11 @@ def _apply_session(data: dict) -> None:
             dpg.set_value(mix_tag, float(ov["mix"]))
         if "random_mix" in ov and dpg.does_item_exist(rnd_tag):
             dpg.set_value(rnd_tag, bool(ov["random_mix"]))
+        if "blend" in ov and kind in _FX_BLEND:
+            try:
+                _FX_BLEND[kind] = int(round(float(ov["blend"])))
+            except Exception:
+                _FX_BLEND[kind] = 0
 
 
 def _save_session_json(path: Path) -> bool:
@@ -1331,6 +1628,14 @@ def _collect_settings() -> AutoEditSettings:
         psort_params         = _collect_psort_params(),
         kaleido_params       = _collect_kaleido_params(),
         slit_params          = _collect_slit_params(),
+        distort_params       = _collect_distort_params(),
+        thermal_params       = _collect_thermal_params(),
+        cellular_params      = _collect_cellular_params(),
+        elastic_grid_params  = _collect_elastic_grid_params(),
+        crt_monitor_params   = _collect_crt_monitor_params(),
+        glitch_params        = _collect_glitch_params(),
+        modulate_params      = _collect_modulate_params(),
+        pixelate_params      = _collect_pixelate_params(),
         effect_overrides     = _collect_effect_overrides(),
         text_cards           = _collect_text_cards(),
         blob_track           = _collect_blob_track(),
@@ -1679,6 +1984,46 @@ def _collect_text_cards() -> TextCardSettings:
         align       = str(_g("tc_align",  "center")),
         font_path   = _font_label_to_path(str(_g("tc_font", _FONT_DEFAULT_LABEL))),
     )
+
+
+def _apply_text_cards(d: dict) -> None:
+    """Push every saved text-card field back into its widget.
+
+    Without this the whole text-card section reverts to defaults on every
+    session reload (only the font picker used to be restored), so users saw
+    text cards silently disabled after relaunch.
+    """
+    if not d:
+        return
+    def _set(tag, val):
+        if dpg.does_item_exist(tag):
+            try: dpg.set_value(tag, val)
+            except Exception: pass
+    _set("tc_enabled",    bool(d.get("enabled", False)))
+    _set("tc_prob",       float(d.get("probability", 0.40)))
+    _set("tc_dur",        float(d.get("duration",    0.80)))
+    # lines: stored list → newline-joined text in the multiline box
+    lines = d.get("lines") or []
+    if isinstance(lines, (list, tuple)):
+        _set("tc_lines", "\n".join(str(l) for l in lines))
+    elif isinstance(lines, str):
+        _set("tc_lines", lines)
+    _set("tc_bg_alpha",   float(d.get("bg_alpha",   1.0)))
+    _set("tc_font_scale", float(d.get("font_scale", 1.0)))
+    al = str(d.get("align", "center"))
+    _set("tc_align", al if al in _ALIGN_OPTS else "center")
+    col = d.get("color")
+    if col and len(col) >= 3:
+        _set("tc_color", [int(col[0]), int(col[1]), int(col[2]), 255])
+    bg = d.get("bg_color")
+    if bg and len(bg) >= 3:
+        _set("tc_bg_color", [int(bg[0]), int(bg[1]), int(bg[2]), 255])
+    # vibe last → fire its callback so the vibe preview text updates too
+    vibe = str(d.get("vibe", ""))
+    if dpg.does_item_exist("tc_vibe") and vibe in _VIBE_KEYS:
+        dpg.set_value("tc_vibe", vibe)
+        try: _on_tc_vibe_change(None, vibe)
+        except Exception: pass
 
 
 _HUE_PRESETS = {"Red":0,"Orange":10,"Yellow":30,"Green":60,
@@ -2044,6 +2389,13 @@ def _build_effects_section():
                 default_value=False, show=False,
                 callback=_on_side_rnd_change,
             )
+            # Compositing mode (TouchDesigner Composite TOP). Shown only for
+            # effects whose shader honours u_blend (FM + CRT, for now).
+            dpg.add_combo(
+                items=list(_BLEND_MODES), default_value=_BLEND_MODES[0],
+                label="Наложение", tag="fx_side_blend",
+                width=-1, show=False, callback=_on_side_blend_change,
+            )
 
             # Pixel sort sub-panel — algorithm picker + key controls
             with dpg.group(tag="fx_side_psort", show=False):
@@ -2148,6 +2500,260 @@ def _build_effects_section():
                     "в чёрный, остаются только яркие штрихи.",
                     color=_GL_DIM, wrap=-1,
                 )
+
+            # Distort sub-panel — procedural displacement-map warp
+            with dpg.group(tag="fx_side_distort", show=False):
+                dpg.add_separator()
+                dpg.add_text("Distort (карта смещения)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Процедурная карта (шум/fBM) генерится в шейдере и сдвигает "
+                    "пиксели по X/Y. Карту можно предобработать — как картинку-"
+                    "карту смещения в tooooools.",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_DISTORT_NOISE_MODES, label="Тип карты",
+                              tag="am_distort_noise_mode",
+                              default_value=_DISTORT_NOISE_MODES[0], width=200)
+                dpg.add_text("сдвиг", color=_GL_DIM)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="X Shift", tag="am_distort_xshift",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Y Shift", tag="am_distort_yshift",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Порог", tag="am_distort_threshold",
+                                         default_value=0.0, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Масштаб карты", tag="am_distort_scale",
+                                         default_value=4.0, min_value=0.5, max_value=24.0,
+                                         width=180, format="%.1f")
+                dpg.add_slider_float(label="Анимация (скорость)", tag="am_distort_speed",
+                                     default_value=0.3, min_value=0.0, max_value=2.0,
+                                     width=180, format="%.2f")
+                dpg.add_spacer(height=2)
+                dpg.add_text("предобработка карты", color=_GL_DIM)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Blur", tag="am_distort_blur",
+                                         default_value=0.0, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Grain", tag="am_distort_grain",
+                                         default_value=0.0, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Gamma", tag="am_distort_gamma",
+                                         default_value=1.0, min_value=0.2, max_value=4.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Black pt", tag="am_distort_black",
+                                         default_value=0.0, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                dpg.add_slider_float(label="White pt", tag="am_distort_white",
+                                     default_value=1.0, min_value=0.0, max_value=1.0,
+                                     width=180, format="%.2f")
+                dpg.add_text(
+                    "Порог > 0 → смещаются только светлые области карты.\n"
+                    "Black/White point растягивают контраст карты.",
+                    color=_GL_DIM, wrap=-1,
+                )
+
+            # ── Thermal sub-panel — false-colour infrared LUT ──
+            with dpg.group(tag="fx_side_thermal", show=False):
+                dpg.add_separator()
+                dpg.add_text("Thermal (тепловизор)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Яркость кадра раскрашивается по тепловой палитре. "
+                    "Gain/Gamma тянут отклик, Levels квантует на полосы.",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_THERMAL_PALETTES, label="Палитра",
+                              tag="am_thermal_palette",
+                              default_value=_THERMAL_PALETTES[0], width=200)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Gain", tag="am_thermal_gain",
+                                         default_value=1.0, min_value=0.2, max_value=3.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Gamma", tag="am_thermal_gamma",
+                                         default_value=1.0, min_value=0.2, max_value=4.0,
+                                         width=180, format="%.2f")
+                dpg.add_slider_float(label="Levels (полосы)", tag="am_thermal_levels",
+                                     default_value=0.0, min_value=0.0, max_value=12.0,
+                                     width=180, format="%.0f")
+
+            # ── Cellular automata sub-panel (feedback) ──
+            with dpg.group(tag="fx_side_cellular", show=False):
+                dpg.add_separator()
+                dpg.add_text("Cellular automata", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Живые клетки засеиваются по яркости и эволюционируют "
+                    "от кадра к кадру (сброс на каждом кате).",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_CA_MODES, label="Режим", tag="am_ca_mode",
+                              default_value=_CA_MODES[0], width=200)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Размер клетки", tag="am_ca_cell",
+                                         default_value=8.0, min_value=2.0, max_value=32.0,
+                                         width=180, format="%.0f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Скорость", tag="am_ca_rate",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                dpg.add_slider_float(label="Порог засева", tag="am_ca_seed_thr",
+                                     default_value=0.6, min_value=0.0, max_value=1.0,
+                                     width=180, format="%.2f")
+                dpg.add_color_edit(label="Цвет клеток", tag="am_ca_tint",
+                                   default_value=(79, 255, 140, 255),
+                                   no_alpha=True, width=200)
+
+            # ── Elastic grid sub-panel — mesh warp ──
+            with dpg.group(tag="fx_side_elastic_grid", show=False):
+                dpg.add_separator()
+                dpg.add_text("Elastic grid (mesh warp)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Решётка узлов с анимированным смещением; пиксели тянутся "
+                    "эластично (билинейный бленд узлов).",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_EG_NOISE_MODES, label="Движение узлов",
+                              tag="am_eg_noise_mode",
+                              default_value=_EG_NOISE_MODES[0], width=200)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Сетка (узлов)", tag="am_eg_grid",
+                                         default_value=8.0, min_value=2.0, max_value=32.0,
+                                         width=180, format="%.0f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Сила", tag="am_eg_strength",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Скорость", tag="am_eg_speed",
+                                         default_value=0.5, min_value=0.0, max_value=2.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Джиттер", tag="am_eg_jitter",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+
+            # ── CRT monitor v2 sub-panel — barrel + aperture grille ──
+            with dpg.group(tag="fx_side_crt_monitor", show=False):
+                dpg.add_separator()
+                dpg.add_text("CRT монитор (v2)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "«Толстый» ламповый ТВ: бочка экрана, RGB-маска, "
+                    "скан-линии, виньетка, свечение, краевая аберрация.",
+                    color=_GL_DIM, wrap=-1,
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Кривизна", tag="am_crtm_curvature",
+                                         default_value=0.30, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Скан-линии", tag="am_crtm_scanline",
+                                         default_value=0.50, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Маска (grille)", tag="am_crtm_grille",
+                                         default_value=0.40, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Виньетка", tag="am_crtm_vignette",
+                                         default_value=0.40, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Свечение", tag="am_crtm_bloom",
+                                         default_value=0.30, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Аберрация", tag="am_crtm_aberration",
+                                         default_value=0.50, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+
+            # ── Glitch sub-panel (feedback block displacement) ──
+            with dpg.group(tag="fx_side_glitch", show=False):
+                dpg.add_separator()
+                dpg.add_text("Glitch (блочный)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Блоки кадра рвутся и замораживаются из предыдущего "
+                    "кадра (сброс на каждом кате).",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_slider_float(label="Размер блока", tag="am_glitch_block_size",
+                                     default_value=0.30, min_value=0.0, max_value=1.0,
+                                     width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Частота сбоев", tag="am_glitch_drop_chance",
+                                         default_value=0.30, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Заморозка", tag="am_glitch_repeat_chance",
+                                         default_value=0.20, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+
+            # ── Modulation sub-panel — AM/FM/phase signal ──
+            with dpg.group(tag="fx_side_modulate", show=False):
+                dpg.add_separator()
+                dpg.add_text("Modulation (сигнал)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Картинка как сигнал на несущей синусоиде: AM (бегущие "
+                    "полосы яркости), FM (волнистый сдвиг), Phase (хрома-смаз), "
+                    "RGB-полосы (бегущие радужные вертикальные полосы).",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_MOD_MODES, label="Режим", tag="am_mod_mode",
+                              default_value=_MOD_MODES[0], width=200)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Частота", tag="am_mod_freq",
+                                         default_value=20.0, min_value=1.0, max_value=80.0,
+                                         width=180, format="%.0f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Глубина", tag="am_mod_amount",
+                                         default_value=0.5, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Скорость", tag="am_mod_speed",
+                                         default_value=0.5, min_value=0.0, max_value=2.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Ось", tag="am_mod_axis",
+                                         default_value=0.0, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+
+            # ── Pixelate sub-panel — blocky pixelation + recursive feedback ──
+            with dpg.group(tag="fx_side_pixelate", show=False):
+                dpg.add_separator()
+                dpg.add_text("Pixelate (фидбек)", color=_GL_MAGENTA)
+                dpg.add_text(
+                    "Крупные пиксели прогоняются через рекурсивную петлю "
+                    "(как Feedback TOP): прошлый кадр чуть масштабируется, "
+                    "сдвигается и затухает → пиксели расползаются шлейфами "
+                    "и медленно гаснут (pixel memory decay).",
+                    color=_GL_DIM, wrap=-1,
+                )
+                dpg.add_combo(_PIXELATE_FB_MODES, label="Режим петли",
+                              tag="am_pixelate_fb_mode",
+                              default_value=_PIXELATE_FB_MODES[0], width=200)
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Размер пикселя", tag="am_pixelate_block",
+                                         default_value=12.0, min_value=1.0, max_value=64.0,
+                                         width=180, format="%.0f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Фидбек", tag="am_pixelate_feedback",
+                                         default_value=0.90, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                with dpg.group(horizontal=True):
+                    dpg.add_slider_float(label="Зум петли", tag="am_pixelate_zoom",
+                                         default_value=0.55, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
+                    dpg.add_spacer(width=6)
+                    dpg.add_slider_float(label="Снос", tag="am_pixelate_drift",
+                                         default_value=0.30, min_value=0.0, max_value=1.0,
+                                         width=180, format="%.2f")
 
             # ASCII-specific controls — built once, shown only when
             # ASCII is the selected cell
