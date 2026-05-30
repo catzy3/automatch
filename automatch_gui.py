@@ -3972,7 +3972,7 @@ def _rebuild_matrix():
         row_cells = cells[r:r + cols]
         with dpg.group(horizontal=True, parent="fx_matrix_container"):
             for kind in row_cells:
-                # Visual cell group
+                # Visual cell group — payload_type+drop_callback in constructor
                 with dpg.group():
                     dpg.add_button(
                         label=_FX_ABBR.get(kind, kind[:5].upper()),
@@ -3980,16 +3980,13 @@ def _rebuild_matrix():
                         width=cell_w, height=cell_h,
                         callback=_cycle_fx_state,
                         user_data=kind,
+                        payload_type="FX_CELL",
+                        drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
                     )
                     with dpg.drag_payload(parent=f"fx_btn_{kind}",
                                           drag_data=kind,
                                           payload_type="FX_CELL"):
                         dpg.add_text(_FX_ABBR.get(kind, kind[:5].upper()))
-                    dpg.configure_item(
-                        f"fx_btn_{kind}",
-                        payload_type="FX_CELL",
-                        drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
-                    )
                     dpg.add_text(_FX_SHORT.get(kind, kind),
                                  color=_GL_DIM, wrap=cell_w)
                 # Hidden sliders — siblings of the cell group
