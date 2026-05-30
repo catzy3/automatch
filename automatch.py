@@ -2572,10 +2572,11 @@ class OffscreenRenderer:
             U("u_split",     params.dual_split)
             U("u_strength",  params.dual_strength)
         elif kind == "heavy_grain":
-            U("u_amount", params.grain_amount)
-            U("u_size",   params.grain_size)
-            U("u_chroma", params.grain_chroma)
-            U("u_blotch", params.grain_blotch)
+            U("u_amount",    params.grain_amount)
+            U("u_size",      params.grain_size)
+            U("u_chroma",    params.grain_chroma)
+            U("u_blotch",    params.grain_blotch)
+            U("u_algorithm", getattr(params, "grain_algorithm", 0.0))
         elif kind == "motion_trails":
             U("u_decay",     params.trails_decay)
             U("u_threshold", params.trails_threshold)
