@@ -2383,7 +2383,8 @@ def _build_effects_section():
                        callback=_kill_all_effects)
         dpg.add_spacer(width=16)
         dpg.add_checkbox(label="Цепочка", tag="chain_enabled",
-                         default_value=False)
+                         default_value=False,
+                         callback=lambda: _rebuild_matrix())
         dpg.add_button(label="↺", width=26, height=24,
                        callback=lambda: _chain_reset())
     dpg.add_spacer(height=6)
@@ -3927,28 +3928,48 @@ def _apply_effect_chain_gui(chain: list) -> None:
                 _CHAIN_ORDER.append(k)
 
 
+_CHAIN_SWAP_SOURCE: str = ""   # first-click selection for two-step swap
+
+
 def _chain_reset():
     global _CHAIN_ORDER
     _CHAIN_ORDER = list(USER_EFFECTS)
     _rebuild_matrix()
 
 
-def _chain_cell_drop(dst_kind: str, src_kind: str):
-    """Called when src_kind cell is dropped onto dst_kind cell.
-    Moves src to the position of dst in _CHAIN_ORDER, then rebuilds grid."""
-    if src_kind == dst_kind:
-        return
-    try:
-        src_i = _CHAIN_ORDER.index(src_kind)
-        dst_i = _CHAIN_ORDER.index(dst_kind)
-    except ValueError:
-        return
-    _CHAIN_ORDER.insert(dst_i, _CHAIN_ORDER.pop(src_i))
-    _rebuild_matrix()
-    if dpg.does_item_exist("status"):
-        a = _FX_ABBR.get(src_kind, src_kind)
-        b = _FX_ABBR.get(dst_kind, dst_kind)
-        dpg.set_value("status", f"Цепочка: {a} → позиция {dst_i + 1}")
+def _chain_cell_click(kind: str):
+    """Two-step swap: first click selects, second click on different cell swaps."""
+    global _CHAIN_SWAP_SOURCE
+    if not dpg.does_item_exist("chain_enabled") or not dpg.get_value("chain_enabled"):
+        return  # chain mode off — click handled by normal _cycle_fx_state
+    if _CHAIN_SWAP_SOURCE == "":
+        # Step 1: select source
+        _CHAIN_SWAP_SOURCE = kind
+        _rebuild_matrix()
+        if dpg.does_item_exist("status"):
+            dpg.set_value("status",
+                f"Цепочка: выбран [{_FX_ABBR.get(kind, kind)}] — кликни на другую ячейку для обмена")
+    elif _CHAIN_SWAP_SOURCE == kind:
+        # Deselect
+        _CHAIN_SWAP_SOURCE = ""
+        _rebuild_matrix()
+        if dpg.does_item_exist("status"):
+            dpg.set_value("status", "Цепочка: отменено")
+    else:
+        # Step 2: swap
+        src, dst = _CHAIN_SWAP_SOURCE, kind
+        _CHAIN_SWAP_SOURCE = ""
+        try:
+            si = _CHAIN_ORDER.index(src)
+            di = _CHAIN_ORDER.index(dst)
+        except ValueError:
+            return
+        _CHAIN_ORDER[si], _CHAIN_ORDER[di] = _CHAIN_ORDER[di], _CHAIN_ORDER[si]
+        _rebuild_matrix()
+        if dpg.does_item_exist("status"):
+            a = _FX_ABBR.get(src, src)
+            b = _FX_ABBR.get(dst, dst)
+            dpg.set_value("status", f"Цепочка: [{a}] ↔ [{b}]")
 
 
 def _rebuild_matrix():
@@ -3972,21 +3993,17 @@ def _rebuild_matrix():
         row_cells = cells[r:r + cols]
         with dpg.group(horizontal=True, parent="fx_matrix_container"):
             for kind in row_cells:
-                # Visual cell group — payload_type+drop_callback in constructor
+                chain_on = dpg.does_item_exist("chain_enabled") and dpg.get_value("chain_enabled")
+                is_swap_src = (kind == _CHAIN_SWAP_SOURCE)
                 with dpg.group():
                     dpg.add_button(
                         label=_FX_ABBR.get(kind, kind[:5].upper()),
                         tag=f"fx_btn_{kind}",
                         width=cell_w, height=cell_h,
-                        callback=_cycle_fx_state,
+                        callback=(lambda s, a, k=kind: _chain_cell_click(k))
+                                  if chain_on else _cycle_fx_state,
                         user_data=kind,
-                        payload_type="FX_CELL",
-                        drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
                     )
-                    with dpg.drag_payload(parent=f"fx_btn_{kind}",
-                                          drag_data=kind,
-                                          payload_type="FX_CELL"):
-                        dpg.add_text(_FX_ABBR.get(kind, kind[:5].upper()))
                     dpg.add_text(_FX_SHORT.get(kind, kind),
                                  color=_GL_DIM, wrap=cell_w)
                 # Hidden sliders — siblings of the cell group
@@ -4009,7 +4026,11 @@ def _rebuild_matrix():
             continue
         state = _FX_STATE.get(kind, "off")
         sel   = (kind == _SELECTED_FX)
-        theme = (_BTN_THEMES_SEL if sel else _BTN_THEMES).get(state)
+        # swap-source gets the selected theme regardless of effect state
+        if kind == _CHAIN_SWAP_SOURCE and _BTN_THEMES_SEL:
+            theme = _BTN_THEMES_SEL.get("on")   # bright green border = "selected to swap"
+        else:
+            theme = (_BTN_THEMES_SEL if sel else _BTN_THEMES).get(state)
         if theme:
             dpg.bind_item_theme(btn, theme)
         mix = f"fx_mix_{kind}"
