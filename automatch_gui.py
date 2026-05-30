@@ -331,15 +331,6 @@ _FX_ABBR = {
 }
 
 # ── browser categories ───────────────────────────────────────────────────────
-_FX_CATEGORIES = {
-    "АНАЛОГ":   ["vhs", "crt", "crt_monitor", "heavy_grain", "found_footage"],
-    "ГЛИТЧ":    ["datamosh", "pixel_sort", "rgb_split", "chromatic_aberration", "advanced_glitch"],
-    "ЦВЕТ":     ["duotone", "luma_key", "color_posterize", "iridescent_foil"],
-    "ДИСТОРТ":  ["wave_warp", "swirl", "distort", "elastic_grid", "motion_blur"],
-    "ГЕНЕР.":   ["dither", "cellular", "ascii_mosaic", "kaleidoscope", "thermal"],
-    "ДВИЖЕНИЕ": ["motion_trails", "slit_scan", "edges", "pixel_swap"],
-}
-
 # GL1TCH palette (effects panel only; rest of GUI stays deep-navy)
 _GL_BG       = (8,   8,  12)        # near-black
 _GL_PANEL    = (16, 16,  22)        # panel slightly lifted
@@ -507,213 +498,8 @@ def _kill_all_effects(_s=None, _a=None):
         dpg.set_value("status", "KILL ALL — все эффекты выключены")
 
 
-_BROWSER_SELECTED: str = ""       # currently previewed effect
-_preview_queue: "queue.Queue" = None  # filled on first use
 
 
-def _get_preview_queue():
-    global _preview_queue
-    if _preview_queue is None:
-        import queue as _q
-        _preview_queue = _q.Queue()
-    return _preview_queue
-
-
-def _refresh_browser():
-    """Sync browser button labels and themes with current _FX_STATE."""
-    for kind in USER_EFFECTS:
-        tag = f"br_btn_{kind}"
-        if not dpg.does_item_exist(tag):
-            continue
-        state = _FX_STATE.get(kind, "off")
-        sel   = (kind == _BROWSER_SELECTED)
-        theme = (_BTN_THEMES_SEL if sel else _BTN_THEMES).get(state)
-        if theme:
-            dpg.bind_item_theme(tag, theme)
-        abbr = _FX_ABBR.get(kind, kind[:5].upper())
-        dot  = {"off": "OFF", "on": "ON ", "random": "RND", "locked": "LCK"}.get(state, "OFF")
-        dpg.configure_item(tag, label=f"{abbr:<6} ●{dot}")
-
-
-def _browser_select(kind: str):
-    """Click handler: cycle state AND trigger preview generation."""
-    global _BROWSER_SELECTED
-    _cycle_fx_state(None, None, kind)
-    _BROWSER_SELECTED = kind
-    _refresh_browser()
-    _browser_show_preview(kind)
-
-
-def _browser_show_preview(kind: str):
-    """Kick off background preview generation for kind."""
-    if not dpg.does_item_exist("br_preview_label"):
-        return
-    dpg.configure_item("br_preview_label",
-                       default_value=f"Генерирую {_FX_ABBR.get(kind, kind)}…")
-    q = _get_preview_queue()
-
-    def _gen():
-        try:
-            from effect_preview import generate_preview
-            arr = generate_preview(kind, 200, 130)
-            if arr is not None:
-                q.put((kind, arr.flatten().tolist()))
-        except Exception:
-            pass
-
-    threading.Thread(target=_gen, daemon=True).start()
-
-
-def _drain_preview_queue():
-    """Called every 6 frames from main thread to upload pending previews."""
-    q = _get_preview_queue()
-    while not q.empty():
-        try:
-            kind, flat = q.get_nowait()
-            if dpg.does_item_exist("br_preview_tex"):
-                dpg.set_value("br_preview_tex", flat)
-            if dpg.does_item_exist("br_preview_label"):
-                dpg.configure_item("br_preview_label",
-                                   default_value=EFFECT_LABELS_RU.get(kind, kind))
-        except Exception:
-            pass
-    # reschedule every 6 frames (~10Hz at 60fps)
-    dpg.set_frame_callback(dpg.get_frame_count() + 6, _drain_preview_queue)
-
-
-def _browser_filter(_s=None, _a=None, _u=None):
-    """Show/hide browser rows based on search input."""
-    if not dpg.does_item_exist("br_search"):
-        return
-    query = dpg.get_value("br_search").strip().lower()
-    for kind in USER_EFFECTS:
-        row_tag = f"br_row_{kind}"
-        if not dpg.does_item_exist(row_tag):
-            continue
-        visible = (not query
-                   or query in kind.lower()
-                   or query in _FX_ABBR.get(kind, "").lower()
-                   or query in _FX_SHORT.get(kind, "").lower())
-        dpg.configure_item(row_tag, show=visible)
-    # hide category headers when all children are hidden
-    for cat, members in _FX_CATEGORIES.items():
-        hdr_tag = f"br_hdr_{cat}"
-        if not dpg.does_item_exist(hdr_tag):
-            continue
-        any_visible = any(
-            dpg.does_item_exist(f"br_row_{k}") and dpg.is_item_shown(f"br_row_{k}")
-            for k in members if k in USER_EFFECTS
-        )
-        dpg.configure_item(hdr_tag, show=any_visible)
-
-
-def _build_effect_browser_window():
-    """Floating effect browser — call once after dpg.setup_dearpygui().
-
-    Layout:
-        ┌──────────── left: effect list ──────────┐ ┌── right: preview ──┐
-        │  [Поиск...]              [CLEAR]         │ │  [200×130 preview] │
-        │  ─── АНАЛОГ ────────────────────────── │ │  Effect name       │
-        │  [VHS ●OFF] [CRT ●OFF] [CRTM ●RND]     │ │  [Description]     │
-        │  ...                                    │ │                    │
-        └─────────────────────────────────────────┘ └────────────────────┘
-    """
-    # Placeholder preview: grey gradient 200×130
-    _prev_w, _prev_h = 200, 130
-    placeholder = [0.1, 0.1, 0.15, 1.0] * (_prev_w * _prev_h)
-
-    with dpg.texture_registry(tag="br_tex_reg"):
-        dpg.add_dynamic_texture(width=_prev_w, height=_prev_h,
-                                default_value=placeholder,
-                                tag="br_preview_tex",
-                                parent="br_tex_reg")
-
-    with dpg.theme() as _win_theme:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg,      _GL_BG + (255,))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (28, 10, 38, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBg,       (20,  8, 28, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Border,        _GL_MAGENTA + (180,))
-            dpg.add_theme_color(dpg.mvThemeCol_Text,          _GL_TEXT)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,  0)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 1)
-    with dpg.theme() as _search_theme:
-        with dpg.theme_component(dpg.mvInputText):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg,        (22, 22, 30))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (30, 30, 42))
-            dpg.add_theme_color(dpg.mvThemeCol_Text,           _GL_CYAN)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,  0)
-            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
-
-    with dpg.window(label="EFFECT BROWSER", tag="fx_browser_win",
-                    width=720, height=620, show=False, no_close=False,
-                    pos=(160, 80)):
-        dpg.bind_item_theme("fx_browser_win", _win_theme)
-
-        with dpg.group(horizontal=True):
-            # ── LEFT: search + effect list ──────────────────────────────
-            with dpg.group(width=430):
-                with dpg.group(horizontal=True):
-                    src = dpg.add_input_text(tag="br_search", hint="Поиск...",
-                                             width=330, callback=_browser_filter,
-                                             on_enter=False)
-                    dpg.bind_item_theme(src, _search_theme)
-                    dpg.add_button(label="CLR", width=50, height=24,
-                                   callback=lambda: (dpg.set_value("br_search", ""),
-                                                     _browser_filter()))
-                dpg.add_spacer(height=4)
-                dpg.add_separator()
-
-                with dpg.child_window(width=428, height=-1, border=False):
-                    for cat_label, members in _FX_CATEGORIES.items():
-                        valid = [k for k in members if k in USER_EFFECTS]
-                        if not valid:
-                            continue
-                        dpg.add_spacer(height=4)
-                        dpg.add_text(f"── {cat_label} ──",
-                                     tag=f"br_hdr_{cat_label}",
-                                     color=_GL_MAGENTA)
-                        dpg.add_spacer(height=2)
-                        for i, kind in enumerate(valid):
-                            abbr  = _FX_ABBR.get(kind, kind[:5].upper())
-                            state = _FX_STATE.get(kind, "off")
-                            dot   = {"off":"OFF","on":"ON ","random":"RND","locked":"LCK"}.get(state,"OFF")
-                            with dpg.group(tag=f"br_row_{kind}", horizontal=True):
-                                btn = dpg.add_button(
-                                    label=f"{abbr:<6} ●{dot}",
-                                    tag=f"br_btn_{kind}",
-                                    width=130, height=32,
-                                    callback=lambda s, a, k=kind: _browser_select(k),
-                                )
-                                theme = _BTN_THEMES.get(state)
-                                if theme:
-                                    dpg.bind_item_theme(btn, theme)
-                                dpg.add_text(
-                                    _FX_SHORT.get(kind, kind),
-                                    color=_GL_DIM,
-                                )
-                            if i % 3 == 2:
-                                dpg.add_spacer(height=1)
-
-            # ── RIGHT: preview panel ────────────────────────────────────
-            dpg.add_spacer(width=8)
-            with dpg.group(width=240):
-                dpg.add_text("PREVIEW", color=_GL_CYAN)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
-                dpg.add_image("br_preview_tex",
-                              width=_prev_w, height=_prev_h)
-                dpg.add_spacer(height=6)
-                dpg.add_text("— кликни эффект —",
-                             tag="br_preview_label",
-                             color=_GL_DIM, wrap=220)
-                dpg.add_spacer(height=8)
-                dpg.add_separator()
-                dpg.add_spacer(height=4)
-                dpg.add_text(
-                    "Превью рендерится через\nшейдер на синтетическом\nтестовом кадре.",
-                    color=_GL_DIM, wrap=220,
-                )
 
 
 def _collect_effect_overrides() -> dict:
@@ -2601,9 +2387,6 @@ def _build_effects_section():
         dpg.add_button(label="KILL ALL", tag="fx_kill_all_btn",
                        width=88, height=24,
                        callback=_kill_all_effects)
-        dpg.add_button(label="BROWSER", tag="fx_browser_btn",
-                       width=80, height=24,
-                       callback=lambda: dpg.configure_item("fx_browser_win", show=True))
         dpg.add_spacer(width=16)
         dpg.add_checkbox(label="Цепочка", tag="chain_enabled",
                          default_value=False,
@@ -4727,7 +4510,6 @@ def main() -> int:
     _build_btn_themes()        # must be after setup_dearpygui
     _build_strip_themes()
     _register_glitch_textures()
-    _build_effect_browser_window()   # floating browser, show=False until BROWSER btn
 
     with dpg.window(tag="main", no_close=True, no_title_bar=True):
 
@@ -4816,8 +4598,6 @@ def main() -> int:
 
     dpg.show_viewport()
     dpg.set_primary_window("main", True)
-    # start preview queue drain loop (runs every 6 frames)
-    dpg.set_frame_callback(6, _drain_preview_queue)
     dpg.start_dearpygui()
     # save on exit
     _autosave_last_session()

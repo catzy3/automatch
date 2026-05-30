@@ -31,14 +31,18 @@ class EffectConfig:
     kind: str
     enabled: bool = True
     mix: float = 1.0
+    # Compositing mode for the effect's wet result over its dry input, à la a
+    # TouchDesigner Composite TOP. 0 = Cross/Over (linear mix — the historical
+    # behaviour). Shaders that declare `u_blend` honour the rest; others ignore.
+    #   0 cross  1 add  2 screen  3 multiply  4 overlay
+    #   5 difference  6 lighten(max)  7 darken(min)  8 dodge  9 burn  10 subtract
+    blend: float = 0.0
 
 
 def default_pipeline() -> List[EffectConfig]:
     return [
         EffectConfig("luma_key",        True,  0.85),
         EffectConfig("motion_trails",   True,  0.55),
-        EffectConfig("dual_tone",       True,  0.85),
-        EffectConfig("heavy_grain",     True,  0.55),
         EffectConfig("pixel_sort",      False, 0.65),
         EffectConfig("wave_warp",       False, 0.55),
         EffectConfig("ascii_mosaic",    False, 0.80),
@@ -54,13 +58,17 @@ def default_pipeline() -> List[EffectConfig]:
         EffectConfig("pixel_swap",      False, 0.40),
         EffectConfig("mirror_flow",     False, 0.45),
         EffectConfig("rgb_split",       False, 1.00),
-        EffectConfig("glitch",          False, 1.00),
         EffectConfig("crt",             False, 1.00),
         EffectConfig("drip",            False, 0.60),
         EffectConfig("dither",          False, 1.00),
         EffectConfig("edges",           False, 0.80),
         EffectConfig("kaleidoscope",    False, 0.85),
         EffectConfig("slit_scan",       False, 0.85),
+        EffectConfig("distort",         False, 0.85),
+        EffectConfig("thermal",         False, 0.85),
+        EffectConfig("cellular",        False, 0.70),
+        EffectConfig("elastic_grid",    False, 0.70),
+        EffectConfig("crt_monitor",     False, 1.00),
     ]
 
 
@@ -328,6 +336,71 @@ class Params:
     slit_feedback:  float = 1.0   # persistence of old lines (1 = none lost)
     slit_threshold: float = 0.0   # luma gate on captured line (0 = off, >0 = cut)
 
+    # Distort — procedural displacement-map warp (tooooools-style)
+    #   A noise/wave field is generated in-shader, optionally pre-processed
+    #   (blur/grain/gamma/black-white point) the same way you'd tweak a
+    #   distortion-map image, then used to offset the source UVs.
+    distort_xshift:    float = 0.5   # X displacement strength
+    distort_yshift:    float = 0.5   # Y displacement strength
+    distort_threshold: float = 0.0   # only displace where map > threshold (0=all)
+    distort_scale:     float = 4.0   # procedural map frequency (pattern size)
+    distort_speed:     float = 0.3   # map animation speed (0 = frozen)
+    distort_blur:      float = 0.0   # soften the map (0..1)
+    distort_grain:     float = 0.0   # add fine noise to the map (0..1)
+    distort_gamma:     float = 1.0   # map gamma (0.2..4)
+    distort_black:     float = 0.0   # map black point (0..1)
+    distort_white:     float = 1.0   # map white point (0..1)
+    distort_noise_mode: float = 0.0  # 0 = value-noise fBM, 1 = simplex fBM (LYGIA)
+
+    # Thermal — false-colour infrared LUT
+    thermal_palette: float = 0.0  # 0=infrared 1=ironbow 2=rainbow 3=arctic
+    thermal_gain:    float = 1.0  # pre-multiply luma (0.2..3)
+    thermal_gamma:   float = 1.0  # luma gamma (0.2..4)
+    thermal_levels:  float = 0.0  # posterise bands (0 = smooth, >=2 = banded)
+
+    # Cellular automata — Life / decay-diffusion overlay (feedback)
+    ca_cell:     float = 8.0   # cell size in px (2..32)
+    ca_rate:     float = 0.5   # evolution probability per frame (0..1)
+    ca_seed_thr: float = 0.6   # luma threshold that seeds live cells (0..1)
+    ca_mode:     float = 0.0   # 0 = Life (B3/S23), 1 = decay-diffusion
+    ca_tint_r:   float = 0.31  # living-cell colour
+    ca_tint_g:   float = 1.0
+    ca_tint_b:   float = 0.55
+
+    # Elastic grid — lattice mesh warp
+    eg_grid:     float = 8.0   # nodes across (2..32)
+    eg_strength: float = 0.5   # displacement amount (0..1)
+    eg_speed:    float = 0.5   # animation speed (0..2)
+    eg_jitter:   float = 0.5   # per-cell shear / chaos (0..1)
+    eg_noise_mode: float = 0.0 # 0 = hash sin/cos, 1 = simplex flow (LYGIA)
+
+    # CRT monitor (v2) — barrel + aperture grille + bloom
+    crtm_curvature:  float = 0.30
+    crtm_scanline:   float = 0.50
+    crtm_grille:     float = 0.40
+    crtm_vignette:   float = 0.40
+    crtm_bloom:      float = 0.30
+    crtm_aberration: float = 0.50
+
+    # Glitch — block-displacement digital glitch (feedback)
+    glitch_block_size:    float = 0.30   # band/macroblock size (0..1)
+    glitch_drop_chance:   float = 0.30   # how often blocks glitch (0..1)
+    glitch_repeat_chance: float = 0.20   # stuck/frozen blocks from prev frame (0..1)
+
+    # Modulate — signal modulation (AM / FM / phase)
+    mod_mode:   float = 0.0    # 0=AM 1=FM 2=phase
+    mod_freq:   float = 20.0   # carrier frequency (cycles across frame)
+    mod_amount: float = 0.5    # modulation depth (0..1)
+    mod_speed:  float = 0.5    # carrier scroll speed
+    mod_axis:   float = 0.0    # 0=vertical bars 1=horizontal (between=diagonal)
+
+    # Pixelate — blocky pixelation with a recursive feedback loop
+    pixelate_block:    float = 12.0   # block size in px (bigger = chunkier)
+    pixelate_feedback: float = 0.90   # 0..1 history persistence / trail length
+    pixelate_zoom:     float = 0.55   # 0..1 → feedback centre-zoom (0.5=neutral)
+    pixelate_drift:    float = 0.30   # 0..1 → feedback vertical crawl
+    pixelate_fb_mode:  float = 0.0    # 0=lighten(max) 1=add 2=over(mix)
+
     # Wave warp — 3 wave layers
     wave_amp1: float = 0.30
     wave_amp2: float = 0.20
@@ -572,12 +645,15 @@ class SharedState:
             return dict(self.tracking)
 
     def update_effect(self, idx: int, *, enabled: bool | None = None,
-                      mix: float | None = None) -> None:
+                      mix: float | None = None,
+                      blend: float | None = None) -> None:
         with self.params_lock:
             if 0 <= idx < len(self.params.effects):
                 eff = self.params.effects[idx]
                 if enabled is not None:
                     eff.enabled = enabled
+                if blend is not None:
+                    eff.blend = float(blend)
                 if mix is not None:
                     eff.mix = float(mix)
                     # also write to base_params so the modulation engine

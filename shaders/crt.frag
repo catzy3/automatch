@@ -39,9 +39,33 @@ uniform float u_curvature;
 uniform float u_vignette;
 uniform float u_persistence;
 uniform float u_mix;
+uniform float u_blend;    // composite mode (see _blendOp): 0=cross 1=add 2=screen…
 
 in  vec2 v_uv;
 out vec4 fragColor;
+
+// ── TouchDesigner-style Composite TOP: blend `wet` over `dry`, then opacity ──
+//   0 cross/over  1 add  2 screen  3 multiply  4 overlay  5 difference
+//   6 lighten(max) 7 darken(min) 8 dodge  9 burn  10 subtract
+vec3 _blendOp(vec3 b, vec3 s, int m) {
+    if (m == 1)  return b + s;
+    if (m == 2)  return 1.0 - (1.0 - b) * (1.0 - s);
+    if (m == 3)  return b * s;
+    if (m == 4)  return mix(2.0 * b * s,
+                            1.0 - 2.0 * (1.0 - b) * (1.0 - s),
+                            step(0.5, b));
+    if (m == 5)  return abs(b - s);
+    if (m == 6)  return max(b, s);
+    if (m == 7)  return min(b, s);
+    if (m == 8)  return b / max(1.0 - s, 1e-4);
+    if (m == 9)  return 1.0 - (1.0 - b) / max(s, 1e-4);
+    if (m == 10) return b - s;
+    return s;                                   // 0 = cross/over → wet only
+}
+vec3 composite(vec3 dry, vec3 wet, float amount, float blend) {
+    vec3 r = clamp(_blendOp(dry, wet, int(blend + 0.5)), 0.0, 1.0);
+    return mix(dry, r, clamp(amount, 0.0, 1.0));
+}
 
 // Magnetic-deflection barrel distortion.  Real CRTs use a quartic
 // polynomial fit to keep the centre flat and pull only the corners.
@@ -180,5 +204,5 @@ void main() {
     float vig = 1.0 - dot(c, c) * 1.4 * u_vignette;
     col *= clamp(vig, 0.0, 1.0);
 
-    fragColor = vec4(mix(dry, col, u_mix), 1.0);
+    fragColor = vec4(composite(dry, col, u_mix, u_blend), 1.0);
 }
