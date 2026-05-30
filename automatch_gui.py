@@ -508,6 +508,15 @@ def _kill_all_effects(_s=None, _a=None):
 
 
 _BROWSER_SELECTED: str = ""       # currently previewed effect
+_preview_queue: "queue.Queue" = None  # filled on first use
+
+
+def _get_preview_queue():
+    global _preview_queue
+    if _preview_queue is None:
+        import queue as _q
+        _preview_queue = _q.Queue()
+    return _preview_queue
 
 
 def _refresh_browser():
@@ -527,7 +536,7 @@ def _refresh_browser():
 
 
 def _browser_select(kind: str):
-    """Click handler: cycle state AND show preview."""
+    """Click handler: cycle state AND trigger preview generation."""
     global _BROWSER_SELECTED
     _cycle_fx_state(None, None, kind)
     _BROWSER_SELECTED = kind
@@ -536,20 +545,40 @@ def _browser_select(kind: str):
 
 
 def _browser_show_preview(kind: str):
-    """Generate preview for kind and push into the browser preview area."""
-    if not dpg.does_item_exist("br_preview_tex"):
-        return
+    """Kick off background preview generation for kind."""
     if not dpg.does_item_exist("br_preview_label"):
         return
     dpg.configure_item("br_preview_label",
-                       default_value=EFFECT_LABELS_RU.get(kind, kind))
-    try:
-        from effect_preview import generate_preview
-        arr = generate_preview(kind, 200, 130)
-        if arr is not None:
-            dpg.set_value("br_preview_tex", arr.flatten().tolist())
-    except Exception:
-        pass
+                       default_value=f"Генерирую {_FX_ABBR.get(kind, kind)}…")
+    q = _get_preview_queue()
+
+    def _gen():
+        try:
+            from effect_preview import generate_preview
+            arr = generate_preview(kind, 200, 130)
+            if arr is not None:
+                q.put((kind, arr.flatten().tolist()))
+        except Exception:
+            pass
+
+    threading.Thread(target=_gen, daemon=True).start()
+
+
+def _drain_preview_queue():
+    """Called every 6 frames from main thread to upload pending previews."""
+    q = _get_preview_queue()
+    while not q.empty():
+        try:
+            kind, flat = q.get_nowait()
+            if dpg.does_item_exist("br_preview_tex"):
+                dpg.set_value("br_preview_tex", flat)
+            if dpg.does_item_exist("br_preview_label"):
+                dpg.configure_item("br_preview_label",
+                                   default_value=EFFECT_LABELS_RU.get(kind, kind))
+        except Exception:
+            pass
+    # reschedule every 6 frames (~10Hz at 60fps)
+    dpg.set_frame_callback(dpg.get_frame_count() + 6, _drain_preview_queue)
 
 
 def _browser_filter(_s=None, _a=None, _u=None):
@@ -4131,26 +4160,41 @@ def _chain_reset():
     _rebuild_matrix()
 
 
+def _chain_rebind_btn(kind: str, selected: bool):
+    """Rebind only a single matrix button's theme — no rebuild needed."""
+    tag = f"fx_btn_{kind}"
+    if not dpg.does_item_exist(tag) or not _BTN_THEMES:
+        return
+    state = _FX_STATE.get(kind, "off")
+    if selected and _BTN_THEMES_SEL:
+        theme = _BTN_THEMES_SEL.get("on")   # bright green border = selected
+    else:
+        theme = _BTN_THEMES.get(state)
+    if theme:
+        dpg.bind_item_theme(tag, theme)
+
+
 def _chain_cell_click(kind: str):
-    """Two-step swap: first click selects, second click on different cell swaps."""
+    """Two-step swap: first click selects (theme-only), second click swaps + rebuilds."""
     global _CHAIN_SWAP_SOURCE
     if not dpg.does_item_exist("chain_enabled") or not dpg.get_value("chain_enabled"):
-        return  # chain mode off — click handled by normal _cycle_fx_state
+        return
     if _CHAIN_SWAP_SOURCE == "":
-        # Step 1: select source
+        # Step 1 — just highlight, NO rebuild (safe from within button callback)
         _CHAIN_SWAP_SOURCE = kind
-        _rebuild_matrix()
+        _chain_rebind_btn(kind, selected=True)
         if dpg.does_item_exist("status"):
             dpg.set_value("status",
-                f"Цепочка: выбран [{_FX_ABBR.get(kind, kind)}] — кликни на другую ячейку для обмена")
+                f"Цепочка: [{_FX_ABBR.get(kind, kind)}] выбран — кликни другую ячейку")
     elif _CHAIN_SWAP_SOURCE == kind:
-        # Deselect
+        # Deselect — just restore theme, NO rebuild
+        prev = _CHAIN_SWAP_SOURCE
         _CHAIN_SWAP_SOURCE = ""
-        _rebuild_matrix()
+        _chain_rebind_btn(prev, selected=False)
         if dpg.does_item_exist("status"):
             dpg.set_value("status", "Цепочка: отменено")
     else:
-        # Step 2: swap
+        # Step 2 — swap + rebuild (safe: we are in a DIFFERENT button's callback)
         src, dst = _CHAIN_SWAP_SOURCE, kind
         _CHAIN_SWAP_SOURCE = ""
         try:
@@ -4161,8 +4205,7 @@ def _chain_cell_click(kind: str):
         _CHAIN_ORDER[si], _CHAIN_ORDER[di] = _CHAIN_ORDER[di], _CHAIN_ORDER[si]
         _rebuild_matrix()
         if dpg.does_item_exist("status"):
-            a = _FX_ABBR.get(src, src)
-            b = _FX_ABBR.get(dst, dst)
+            a, b = _FX_ABBR.get(src, src), _FX_ABBR.get(dst, dst)
             dpg.set_value("status", f"Цепочка: [{a}] ↔ [{b}]")
 
 
@@ -4773,6 +4816,8 @@ def main() -> int:
 
     dpg.show_viewport()
     dpg.set_primary_window("main", True)
+    # start preview queue drain loop (runs every 6 frames)
+    dpg.set_frame_callback(6, _drain_preview_queue)
     dpg.start_dearpygui()
     # save on exit
     _autosave_last_session()
