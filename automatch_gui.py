@@ -26,7 +26,7 @@ from automatch import (
     audio_duration,
     preview as automatch_preview, run as automatch_run,
 )
-from automatch_mod import LFO_WAVES, MOD_SOURCES, COMBINE_MODES, MOD_MODES, LFO_NAMES
+from automatch_mod import LFO_WAVES, MOD_SOURCES, COMBINE_MODES, MOD_MODES, LFO_NAMES, BEAT_SPIKE_PRESET, DOWNBEAT_PULSE_PRESET
 
 # ── short labels for the compact effects table ───────────────────────────────
 _FX_SHORT = {
@@ -42,8 +42,12 @@ _FX_SHORT = {
     "ascii_mosaic":  "ASCII",
     "crt":           "CRT",
     "dither":        "Dither",
-    "kaleidoscope":  "Kaleido",
-    "slit_scan":     "Slit-scan",
+    "kaleidoscope":         "Kaleido",
+    "slit_scan":            "Slit-scan",
+    "found_footage":        "Found Footage",
+    "chromatic_aberration": "Chr. Aberration",
+    "color_posterize":      "Posterize",
+    "swirl":                "Swirl",
 }
 
 # Set by the entry point (shi_o_kiku.py) to the directory where the user
@@ -312,8 +316,12 @@ _FX_ABBR = {
     "ascii_mosaic":  "ASCII",
     "crt":           "CRT",
     "dither":        "DTHR",
-    "kaleidoscope":  "KALEI",
-    "slit_scan":     "SLIT",
+    "kaleidoscope":         "KALEI",
+    "slit_scan":            "SLIT",
+    "found_footage":        "FOUND",
+    "chromatic_aberration": "CHRAB",
+    "color_posterize":      "POST",
+    "swirl":                "SWIRL",
 }
 
 # GL1TCH palette (effects panel only; rest of GUI stays deep-navy)
@@ -3557,6 +3565,31 @@ def _apply_mod_config(d: dict) -> None:
         _s(f"mod_r{i}_comb",  comb_lbl)
 
 
+def _clear_mod_config() -> None:
+    """Reset all ModMatrix widgets to their defaults (no routes active)."""
+    def _s(tag, val):
+        if dpg.does_item_exist(tag):
+            try: dpg.set_value(tag, val)
+            except Exception: pass
+    _s("mod_enabled", False)
+    for i in range(1, 5):
+        _s(f"mod_lfo{i}_wave",  "Sine")
+        _s(f"mod_lfo{i}_rate",  1.0)
+        _s(f"mod_lfo{i}_sync",  False)
+        _s(f"mod_lfo{i}_phase", 0.0)
+        _s(f"mod_lfo{i}_rdb",   False)
+    for i in range(1, _MOD_N_ROUTES + 1):
+        _s(f"mod_r{i}_tgt",   "")
+        _s(f"mod_r{i}_src",   "off")
+        _s(f"mod_r{i}_mode",  "bipolar")
+        _s(f"mod_r{i}_depth", 0.2)
+        _s(f"mod_r{i}_curve", 1.0)
+        _s(f"mod_r{i}_lo",    0.0)
+        _s(f"mod_r{i}_hi",    1.0)
+        _s(f"mod_r{i}_inv",   False)
+        _s(f"mod_r{i}_comb",  "add")
+
+
 def _build_mod_matrix_section():
     _wave_labels  = list(_MOD_LFO_WAVE_LABELS.values())
     _src_labels   = list(_MOD_SOURCE_LABELS.values())
@@ -3567,6 +3600,31 @@ def _build_mod_matrix_section():
     with dpg.collapsing_header(label="  Mod Matrix", default_open=False):
         dpg.add_checkbox(label="Включить модуляцию", tag="mod_enabled",
                          default_value=False)
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="BEAT SPIKE",
+                width=120,
+                callback=lambda: (
+                    _apply_mod_config(BEAT_SPIKE_PRESET),
+                    dpg.set_value("mod_enabled", True),
+                ),
+            )
+            dpg.add_spacer(width=6)
+            dpg.add_button(
+                label="DOWNBEAT PULSE",
+                width=150,
+                callback=lambda: (
+                    _apply_mod_config(DOWNBEAT_PULSE_PRESET),
+                    dpg.set_value("mod_enabled", True),
+                ),
+            )
+            dpg.add_spacer(width=6)
+            dpg.add_button(
+                label="CLEAR",
+                width=80,
+                callback=lambda: _clear_mod_config(),
+            )
         dpg.add_spacer(height=6)
 
         # ── LFOs ──────────────────────────────────────────────────────────────

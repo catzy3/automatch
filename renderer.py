@@ -164,8 +164,12 @@ class RenderThread(threading.Thread):
             "wave_warp":    ctx.program(vertex_shader=vert, fragment_shader=_load("wave_warp.frag")),
             "depth_apply":  ctx.program(vertex_shader=vert, fragment_shader=_load("depth_apply.frag")),
             "depth_view":   ctx.program(vertex_shader=vert, fragment_shader=_load("depth_view.frag")),
-            "ascii_mosaic": ctx.program(vertex_shader=vert, fragment_shader=_load("ascii_mosaic.frag")),
-            "final":        ctx.program(vertex_shader=vert, fragment_shader=_load("final.frag")),
+            "ascii_mosaic":          ctx.program(vertex_shader=vert, fragment_shader=_load("ascii_mosaic.frag")),
+            "found_footage":         ctx.program(vertex_shader=vert, fragment_shader=_load("found_footage.frag")),
+            "chromatic_aberration":  ctx.program(vertex_shader=vert, fragment_shader=_load("chromatic_aberration.frag")),
+            "color_posterize":       ctx.program(vertex_shader=vert, fragment_shader=_load("color_posterize.frag")),
+            "swirl":                 ctx.program(vertex_shader=vert, fragment_shader=_load("swirl.frag")),
+            "final":                 ctx.program(vertex_shader=vert, fragment_shader=_load("final.frag")),
         }
         vbo = ctx.buffer(QUAD_VERTS.tobytes())
         vaos = {

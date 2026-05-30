@@ -26,6 +26,7 @@ import moderngl
 import numpy as np
 
 from ascii_atlas import GLYPHS as ASCII_DEFAULT, make_atlas_array
+from automatch_mod import ModMatrix
 from smart_random import smart_random
 from state import EffectConfig, SharedState
 
@@ -249,6 +250,28 @@ class AutoEditSettings:
     # Slit-scan overrides. Keys are state.Params field names
     # (slit_direction, slit_speed, slit_scanpos, slit_feedback).
     slit_params: dict = field(default_factory=dict)
+    # Distort overrides. Keys are state.Params field names
+    # (distort_xshift/yshift/threshold/scale/speed/blur/grain/gamma/black/white).
+    distort_params: dict = field(default_factory=dict)
+    # ── New-effect overrides (same field-name → value pattern as above) ──
+    # Thermal (thermal_palette/gain/gamma/levels).
+    thermal_params: dict = field(default_factory=dict)
+    # Cellular automata (ca_cell/rate/seed_thr/mode/tint_r/tint_g/tint_b).
+    cellular_params: dict = field(default_factory=dict)
+    # Elastic grid (eg_grid/strength/speed/jitter).
+    elastic_grid_params: dict = field(default_factory=dict)
+    # CRT monitor v2 (crtm_curvature/scanline/grille/vignette/bloom/aberration).
+    crt_monitor_params: dict = field(default_factory=dict)
+    # Glitch block (glitch_block_size/drop_chance/repeat_chance).
+    glitch_params: dict = field(default_factory=dict)
+    # Modulation (mod_mode/freq/amount/speed/axis).
+    modulate_params: dict = field(default_factory=dict)
+    # Pixelate feedback (pixelate_block/feedback/zoom/drift/fb_mode).
+    pixelate_params: dict = field(default_factory=dict)
+    # Per-frame "human" modulation matrix (LFOs + audio envelopes → params).
+    # JSON-serialisable {"lfos": [...], "routes": [...]}; see automatch_mod.py.
+    # Empty dict = inert (default render unchanged).
+    mod_config: dict = field(default_factory=dict)
     # Per-effect overrides — gives the user full control over what
     # _enable_beat_intensive_preset rolls. Empty dict = full auto. Keys are
     # effect kinds from USER_EFFECTS; each value is:
@@ -410,9 +433,11 @@ def _apply_aspect_crop(frame: "np.ndarray", aspect_w: float, aspect_h: float,
 # These are the ones OffscreenRenderer can render (EFFECT_SHADERS minus the
 # internal "final" pass).
 USER_EFFECTS: tuple = (
-    "luma_key", "duotone", "dual_tone", "heavy_grain", "motion_trails",
+    "luma_key", "duotone", "motion_trails",
     "wave_warp", "pixel_sort", "datamosh", "vhs", "ascii_mosaic", "crt",
     "dither", "rgb_split", "edges", "pixel_swap", "kaleidoscope", "slit_scan",
+    "distort", "thermal", "cellular", "elastic_grid", "crt_monitor",
+    "found_footage", "chromatic_aberration", "color_posterize", "swirl",
 )
 
 # Effects whose wet/dry mix slider is hidden — always render at full strength.
@@ -436,6 +461,18 @@ EFFECT_LABELS_RU: dict = {
     "pixel_swap":   "Pixel swap (обмен пикселей)",
     "kaleidoscope": "Калейдоскоп (kaleidoscope)",
     "slit_scan":    "Slit-scan (врем. смаз)",
+    "distort":      "Distort (карта смещения)",
+    "thermal":      "Thermal (тепловизор)",
+    "cellular":     "Cellular automata",
+    "elastic_grid": "Elastic grid (mesh warp)",
+    "crt_monitor":  "CRT монитор (v2)",
+    "glitch":                "Glitch (блочный)",
+    "modulate":              "Modulation (сигнал)",
+    "pixelate":              "Pixelate (фидбек)",
+    "found_footage":         "Found Footage (деградация)",
+    "chromatic_aberration":  "Хром. аберрация (lens)",
+    "color_posterize":       "Постеризация (палитра)",
+    "swirl":                 "Вихрь (swirl)",
 }
 
 
@@ -2072,7 +2109,10 @@ class OffscreenRenderer:
             "datamosh", "vhs", "ascii_mosaic", "crt",
             "dither",
             "rgb_split", "edges", "pixel_swap",
-            "kaleidoscope", "slit_scan",
+            "kaleidoscope", "slit_scan", "distort",
+            "thermal", "cellular", "elastic_grid", "crt_monitor", "glitch",
+            "modulate", "pixelate",
+            "found_footage", "chromatic_aberration", "color_posterize", "swirl",
             "final",
         ]
         self.progs = {}
@@ -2125,6 +2165,9 @@ class OffscreenRenderer:
         self.prev_trails = fbo()    # motion_trails ping-pong
         self.prev_dm = fbo()        # datamosh ping-pong
         self.prev_slit = fbo()      # slit_scan feedback accumulator
+        self.prev_ca = fbo()        # cellular-automata state buffer
+        self.prev_glitch = fbo()    # glitch freeze/repeat buffer
+        self.prev_pixelate = fbo()  # pixelate recursive-feedback accumulator
         # ─── Chaos mask machinery ───────────────────────────────────────
         # mask_scratch is a side FBO we render into when masking an
         # in-place FBO (read+write to the same texture is forbidden in GL).
@@ -2269,6 +2312,19 @@ class OffscreenRenderer:
         # Copy scratch back to original FBO
         self.ctx.copy_framebuffer(fbo_obj, self.mask_scratch[1])
 
+    def reset_feedback(self):
+        """Clear every feedback accumulator FBO to transparent black.
+
+        Called on each cut boundary so frame-recursive effects (motion_trails,
+        datamosh, slit_scan, cellular, glitch) restart fresh on every clip
+        instead of bleeding their state across the stitch.  This enforces the
+        "effect is applied per-frame, then frames are stitched" model: no
+        feedback memory survives a cut.
+        """
+        for tex, fb in (self.prev_trails, self.prev_dm, self.prev_slit,
+                        self.prev_ca, self.prev_glitch, self.prev_pixelate):
+            fb.clear(0.0, 0.0, 0.0, 0.0)
+
     def render(self, frame_bgr: np.ndarray, params, t: float,
                prev_frame_bgr: Optional[np.ndarray] = None,
                warp_cur:  Optional[np.ndarray] = None,
@@ -2360,6 +2416,18 @@ class OffscreenRenderer:
                 self._U(kind, "u_current", 0)
                 self.prev_slit[0].use(1)
                 self._U(kind, "u_prev", 1)
+            elif kind == "pixelate":
+                self._U(kind, "u_current", 0)
+                self.prev_pixelate[0].use(1)
+                self._U(kind, "u_prev", 1)
+            elif kind == "cellular":
+                self._U(kind, "u_tex", 0)
+                self.prev_ca[0].use(1)
+                self._U(kind, "u_prev", 1)
+            elif kind == "glitch":
+                self._U(kind, "u_tex", 0)
+                self.prev_glitch[0].use(1)
+                self._U(kind, "u_prev", 1)
             elif kind == "datamosh":
                 self._U(kind, "u_tex", 0)
                 self.prev_dm[0].use(1)
@@ -2394,6 +2462,9 @@ class OffscreenRenderer:
                 self._U(kind, "u_tex", 0)
             # generic uniforms
             self._U(kind, "u_mix", eff_mix)
+            # per-effect compositing mode (TouchDesigner-style Composite TOP);
+            # _U safely skips shaders that don't declare u_blend.
+            self._U(kind, "u_blend", float(getattr(cfg, "blend", 0.0)))
             self._U(kind, "u_time", t)
             self._U(kind, "u_resolution", res)
             self._set_effect_params(kind, params)
@@ -2419,6 +2490,18 @@ class OffscreenRenderer:
                 self.ctx.copy_framebuffer(self.prev_slit[1], dst[1])
                 if chaos_bbox is not None:
                     self._apply_chaos_mask_fbo(self.prev_slit, chaos_bbox)
+            if kind == "pixelate":
+                self.ctx.copy_framebuffer(self.prev_pixelate[1], dst[1])
+                if chaos_bbox is not None:
+                    self._apply_chaos_mask_fbo(self.prev_pixelate, chaos_bbox)
+            if kind == "cellular":
+                self.ctx.copy_framebuffer(self.prev_ca[1], dst[1])
+                if chaos_bbox is not None:
+                    self._apply_chaos_mask_fbo(self.prev_ca, chaos_bbox)
+            if kind == "glitch":
+                self.ctx.copy_framebuffer(self.prev_glitch[1], dst[1])
+                if chaos_bbox is not None:
+                    self._apply_chaos_mask_fbo(self.prev_glitch, chaos_bbox)
             src, dst = dst, src
 
         if present_screen_size is not None:
@@ -2597,6 +2680,82 @@ class OffscreenRenderer:
             U("u_scanpos",   getattr(params, "slit_scanpos",   0.5))
             U("u_feedback",  getattr(params, "slit_feedback",  1.0))
             U("u_threshold", getattr(params, "slit_threshold", 0.0))
+        elif kind == "distort":
+            U("u_xshift",    getattr(params, "distort_xshift",    0.5))
+            U("u_yshift",    getattr(params, "distort_yshift",    0.5))
+            U("u_threshold", getattr(params, "distort_threshold", 0.0))
+            U("u_scale",     getattr(params, "distort_scale",     4.0))
+            U("u_speed",     getattr(params, "distort_speed",     0.3))
+            U("u_blur",      getattr(params, "distort_blur",      0.0))
+            U("u_grain",     getattr(params, "distort_grain",     0.0))
+            U("u_gamma",     getattr(params, "distort_gamma",     1.0))
+            U("u_black",     getattr(params, "distort_black",     0.0))
+            U("u_white",     getattr(params, "distort_white",     1.0))
+            U("u_noise_mode", getattr(params, "distort_noise_mode", 0.0))
+        elif kind == "thermal":
+            U("u_palette", getattr(params, "thermal_palette", 0.0))
+            U("u_gain",    getattr(params, "thermal_gain",    1.0))
+            U("u_gamma",   getattr(params, "thermal_gamma",   1.0))
+            U("u_levels",  getattr(params, "thermal_levels",  0.0))
+        elif kind == "cellular":
+            U("u_cell",     getattr(params, "ca_cell",     8.0))
+            U("u_rate",     getattr(params, "ca_rate",     0.5))
+            U("u_seed_thr", getattr(params, "ca_seed_thr", 0.6))
+            U("u_mode",     getattr(params, "ca_mode",     0.0))
+            U("u_tint",     (getattr(params, "ca_tint_r", 0.31),
+                             getattr(params, "ca_tint_g", 1.0),
+                             getattr(params, "ca_tint_b", 0.55)))
+        elif kind == "elastic_grid":
+            U("u_grid",       getattr(params, "eg_grid",       8.0))
+            U("u_strength",   getattr(params, "eg_strength",   0.5))
+            U("u_speed",      getattr(params, "eg_speed",      0.5))
+            U("u_jitter",     getattr(params, "eg_jitter",     0.5))
+            U("u_noise_mode", getattr(params, "eg_noise_mode", 0.0))
+        elif kind == "crt_monitor":
+            U("u_curvature",  getattr(params, "crtm_curvature",  0.30))
+            U("u_scanline",   getattr(params, "crtm_scanline",   0.50))
+            U("u_grille",     getattr(params, "crtm_grille",     0.40))
+            U("u_vignette",   getattr(params, "crtm_vignette",   0.40))
+            U("u_bloom",      getattr(params, "crtm_bloom",      0.30))
+            U("u_aberration", getattr(params, "crtm_aberration", 0.50))
+        elif kind == "glitch":
+            U("u_block_size",    getattr(params, "glitch_block_size",    0.30))
+            U("u_drop_chance",   getattr(params, "glitch_drop_chance",   0.30))
+            U("u_repeat_chance", getattr(params, "glitch_repeat_chance", 0.20))
+        elif kind == "modulate":
+            U("u_mode",   getattr(params, "mod_mode",   0.0))
+            U("u_freq",   getattr(params, "mod_freq",   20.0))
+            U("u_amount", getattr(params, "mod_amount", 0.5))
+            U("u_speed",  getattr(params, "mod_speed",  0.5))
+            U("u_axis",   getattr(params, "mod_axis",   0.0))
+        elif kind == "pixelate":
+            U("u_block",    getattr(params, "pixelate_block",    12.0))
+            U("u_feedback", getattr(params, "pixelate_feedback", 0.90))
+            U("u_zoom",     getattr(params, "pixelate_zoom",     0.55))
+            U("u_drift",    getattr(params, "pixelate_drift",    0.30))
+        elif kind == "found_footage":
+            U("u_dropout_density",  getattr(params, "ff_dropout_density",  0.4))
+            U("u_dropout_strength", getattr(params, "ff_dropout_strength", 0.7))
+            U("u_warp_amount",      getattr(params, "ff_warp_amount",      0.008))
+            U("u_ghost_opacity",    getattr(params, "ff_ghost_opacity",    0.12))
+            U("u_chroma_bleed",     getattr(params, "ff_chroma_bleed",     2.5))
+            U("u_luma_crush",       getattr(params, "ff_luma_crush",       0.4))
+        elif kind == "chromatic_aberration":
+            U("u_offset",          getattr(params, "ca_offset",       0.012))
+            U("u_radial",          getattr(params, "ca_radial",       0.8))
+            U("u_angle",           getattr(params, "ca_angle",        0.0))
+            U("u_chromatic_spin",  getattr(params, "ca_spin",         0.0))
+        elif kind == "color_posterize":
+            U("u_levels",      getattr(params, "post_levels",     6.0))
+            U("u_color_mode",  getattr(params, "post_color_mode", 0.0))
+            U("u_dither_mix",  getattr(params, "post_dither_mix", 0.3))
+        elif kind == "swirl":
+            U("u_strength", getattr(params, "swirl_strength", 3.0))
+            U("u_radius",   getattr(params, "swirl_radius",   0.5))
+            U("u_cx",       getattr(params, "swirl_cx",       0.5))
+            U("u_cy",       getattr(params, "swirl_cy",       0.5))
+            U("u_animate",  getattr(params, "swirl_animate",  0.0))
+            U("u_fb_mode",  getattr(params, "pixelate_fb_mode",  0.0))
 
 
 # ---------------------------------------------------------------- main flow ----
@@ -2988,6 +3147,10 @@ def _enable_beat_intensive_preset(state: SharedState, seed: int,
         ov = overrides.get(eff.kind)
         if not ov:
             continue
+        # compositing mode is independent of the enable/mix state, so apply it
+        # even for "auto" effects (lets the user re-blend a preset-rolled effect).
+        if "blend" in ov:
+            state.update_effect(i, blend=float(ov.get("blend", 0.0)))
         mode = ov.get("state", "auto")
         if mode == "auto":
             continue
@@ -3237,6 +3400,22 @@ def preview(audio_path: Path, media_folder: Path,
                 state.update_param(k, float(v))
             except Exception:
                 pass
+        for k, v in (settings.distort_params or {}).items():
+            try:
+                state.update_param(k, float(v))
+            except Exception:
+                pass
+        # New effects — thermal / cellular / elastic_grid / crt_monitor /
+        # glitch / modulate (same field-name → value override pattern).
+        for _ov in (settings.thermal_params, settings.cellular_params,
+                    settings.elastic_grid_params, settings.crt_monitor_params,
+                    settings.glitch_params, settings.modulate_params,
+                    settings.pixelate_params):
+            for k, v in (_ov or {}).items():
+                try:
+                    state.update_param(k, float(v))
+                except Exception:
+                    pass
         # User-typed ASCII glyph string (string, not a numeric param) —
         # propagated into the snapshot so the renderer can re-bake the atlas.
         snap = state.snapshot_params()
@@ -3282,6 +3461,8 @@ def preview(audio_path: Path, media_folder: Path,
     last_audio_restart = time.monotonic()
     # Per-pass blob tracker state (active only when tracker_mode != "hsv")
     blob_tracker_state = _BlobTrackerState(mode=settings.blob_track.tracker_mode)
+    _last_cut_idx = -1   # for feedback-buffer reset on cut boundaries
+    mod_matrix = ModMatrix(getattr(settings, "mod_config", None))  # human modulation
 
     while not glfw.window_should_close(win):
         glfw.poll_events()
@@ -3296,6 +3477,7 @@ def preview(audio_path: Path, media_folder: Path,
                 pass
             last_audio_restart = time.monotonic()
             elapsed = 0.0
+            _last_cut_idx = -1   # timeline looped → clear feedback next frame
         t = elapsed
 
         # find active cut
@@ -3306,6 +3488,12 @@ def preview(audio_path: Path, media_folder: Path,
                 break
         cur = cuts[cur_idx]
         prev = cuts[cur_idx - 1] if cur_idx > 0 else None
+
+        # ── cut boundary → restart frame-recursive effects fresh ──
+        # Same rule as export: feedback effects don't bleed across the stitch.
+        if cur_idx != _last_cut_idx:
+            rdr.reset_feedback()
+            _last_cut_idx = cur_idx
 
         # ---- crossfade fade-in at the start of this cut ----
         fade_dur = settings.crossfade_ms / 1000.0
@@ -3479,6 +3667,9 @@ def preview(audio_path: Path, media_folder: Path,
             warp_cur_m  = None
             gpu_fade    = 1.0
 
+        # ── per-frame human modulation (LFOs + audio envelopes → params) ──
+        mod_matrix.apply(params, t, audio)
+
         fb_w, fb_h = glfw.get_framebuffer_size(win)
         rdr.render(frame, params, t,
                    prev_frame_bgr=prev_frame,
@@ -3627,6 +3818,22 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
                 state.update_param(k, float(v))
             except Exception:
                 pass
+        for k, v in (settings.distort_params or {}).items():
+            try:
+                state.update_param(k, float(v))
+            except Exception:
+                pass
+        # New effects — thermal / cellular / elastic_grid / crt_monitor /
+        # glitch / modulate (same field-name → value override pattern).
+        for _ov in (settings.thermal_params, settings.cellular_params,
+                    settings.elastic_grid_params, settings.crt_monitor_params,
+                    settings.glitch_params, settings.modulate_params,
+                    settings.pixelate_params):
+            for k, v in (_ov or {}).items():
+                try:
+                    state.update_param(k, float(v))
+                except Exception:
+                    pass
         # User-typed ASCII glyph string (string, not a numeric param) —
         # propagated into the snapshot so the renderer can re-bake the atlas.
         snap = state.snapshot_params()
@@ -3652,6 +3859,8 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
 
     beat_set = list(beats)
     fade_dur = settings.crossfade_ms / 1000.0
+    _last_cut_idx = -1   # for feedback-buffer reset on cut boundaries
+    mod_matrix = ModMatrix(getattr(settings, "mod_config", None))  # human modulation
 
     for f in range(total_frames):
         # ── cancellation check ──
@@ -3681,6 +3890,14 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
                 break
         cur = cuts[cur_idx]
         prev = cuts[cur_idx - 1] if cur_idx > 0 else None
+
+        # ── cut boundary → restart frame-recursive effects fresh ──
+        # Feedback effects (motion_trails / datamosh / slit_scan / cellular /
+        # glitch) must NOT carry state across the stitch: each clip's effect is
+        # built per-frame, then frames are concatenated — not the reverse.
+        if cur_idx != _last_cut_idx:
+            rdr.reset_feedback()
+            _last_cut_idx = cur_idx
 
         # fade alpha at the start of this cut
         fade_alpha = 1.0
@@ -3843,6 +4060,9 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
             prev_frame  = None
             warp_cur_m  = None
             gpu_fade    = 1.0
+
+        # ── per-frame human modulation (LFOs + audio envelopes → params) ──
+        mod_matrix.apply(params, t, audio)
 
         out_bgr = rdr.render(frame, params, t,
                              prev_frame_bgr=prev_frame,
