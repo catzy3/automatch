@@ -2382,6 +2382,11 @@ def _build_effects_section():
         dpg.add_button(label="KILL ALL", tag="fx_kill_all_btn",
                        width=88, height=24,
                        callback=_kill_all_effects)
+        dpg.add_spacer(width=16)
+        dpg.add_checkbox(label="Цепочка", tag="chain_enabled",
+                         default_value=False)
+        dpg.add_button(label="↺", width=26, height=24,
+                       callback=lambda: _chain_reset())
     dpg.add_spacer(height=6)
 
     # 2-col: matrix on the left, side panel on the right
@@ -2404,6 +2409,18 @@ def _build_effects_section():
                                 width=cell_w, height=cell_h,
                                 callback=_cycle_fx_state,
                                 user_data=kind,
+                            )
+                            # drag source: drag this cell to another to reorder chain
+                            with dpg.drag_payload(
+                                    parent=f"fx_btn_{kind}",
+                                    drag_data=kind,
+                                    payload_type="FX_CELL"):
+                                dpg.add_text(_FX_ABBR.get(kind, kind[:5].upper()))
+                            # drop target: accept FX_CELL drops
+                            dpg.configure_item(
+                                f"fx_btn_{kind}",
+                                payload_type="FX_CELL",
+                                drop_callback=lambda s, a, k=kind: _chain_cell_drop(k, a),
                             )
                             dpg.add_text(_FX_SHORT.get(kind, kind),
                                          color=_GL_DIM, wrap=cell_w)
@@ -3255,8 +3272,6 @@ def _build_effects_section():
         color=_GL_DIM, wrap=-1,
     )
 
-    # ── Effect Chain drag-drop tiles ─────────────────────────────────────────
-    _build_chain_tiles()
 
 
 def _build_palette_section():
@@ -3931,11 +3946,6 @@ def _clear_mod_config() -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _CHAIN_ORDER: list = list(USER_EFFECTS)   # mutable, persists in session
-_CHAIN_TILES_BUILT: bool = False          # guard against double-build
-
-_TILES_PER_ROW = 6
-_TILE_W = 62
-_TILE_H = 46
 
 
 def _collect_effect_chain() -> list:
@@ -3954,38 +3964,28 @@ def _apply_effect_chain_gui(chain: list) -> None:
         for k in USER_EFFECTS:
             if k not in seen:
                 _CHAIN_ORDER.append(k)
-    _refresh_chain_tiles()
-
-
-def _refresh_chain_tiles():
-    """Update tile labels and themes to reflect current _CHAIN_ORDER."""
-    for slot, kind in enumerate(_CHAIN_ORDER):
-        tag = f"chain_tile_{slot}"
-        if not dpg.does_item_exist(tag):
-            continue
-        state = _FX_STATE.get(kind, "off")
-        abbr  = _FX_ABBR.get(kind, kind[:5].upper())
-        label = f"{slot+1:02d}\n{abbr}"
-        dpg.configure_item(tag, label=label)
-        if _BTN_THEMES:
-            theme = _BTN_THEMES.get(state)
-            if theme:
-                dpg.bind_item_theme(tag, theme)
-
-
-def _make_chain_drop_cb(dst_slot: int):
-    def cb(sender, src_slot):
-        if src_slot == dst_slot:
-            return
-        _CHAIN_ORDER.insert(dst_slot, _CHAIN_ORDER.pop(src_slot))
-        _refresh_chain_tiles()
-    return cb
 
 
 def _chain_reset():
     global _CHAIN_ORDER
     _CHAIN_ORDER = list(USER_EFFECTS)
-    _refresh_chain_tiles()
+
+
+def _chain_cell_drop(dst_kind: str, src_kind: str):
+    """Called when src_kind cell is dropped onto dst_kind cell.
+    Moves src to the position of dst in _CHAIN_ORDER."""
+    if src_kind == dst_kind:
+        return
+    try:
+        src_i = _CHAIN_ORDER.index(src_kind)
+        dst_i = _CHAIN_ORDER.index(dst_kind)
+    except ValueError:
+        return
+    _CHAIN_ORDER.insert(dst_i, _CHAIN_ORDER.pop(src_i))
+    if dpg.does_item_exist("status"):
+        a = _FX_ABBR.get(src_kind, src_kind)
+        b = _FX_ABBR.get(dst_kind, dst_kind)
+        dpg.set_value("status", f"Цепочка: {a} → позиция {dst_i + 1} (перед {b})")
 
 
 def _build_chain_tiles():
