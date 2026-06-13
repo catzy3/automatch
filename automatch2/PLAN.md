@@ -11,15 +11,16 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 0 — Research & Scaffolding** |
-| Шаг | 0.0 — план составлен, окружение ещё не поднято |
-| Последнее проверено (verified) | — (нечего проверять, кода ещё нет) |
-| Следующее действие | Phase 0 → задача R1: собрать референсы с GitHub (см. §7), затем S1: cargo-скелет |
+| Фаза | **Phase 0 — ЗАВЕРШЕНА** → начинаем Phase 1 |
+| Шаг | C0 готов: cargo-скелет на eframe (winit+glow+egui), окно открывается |
+| Последнее проверено (verified) | `cargo build` Finished (1m21s) + бинарник запущен, окно жило 8с без падения; egui-панель + glow-контекст рабочие |
+| Следующее действие | Phase 1 — Core GFX: `gfx` (Shader/Program с кэшем юниформов, fullscreen-quad, FBO-пул, ping-pong) + passthrough-проход PNG на экран через `egui::PaintCallback`+`egui_glow` |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `24c39c3` (план + стек Rust) |
+| Последний чекпоинт-коммит | _обновится после push C0_ |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
+| Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▱▱▱▱▱▱▱▱▱▱ 0/10
+**Прогресс по фазам:** ▰▱▱▱▱▱▱▱▱▱ 1/10 (C0)
 
 ---
 
@@ -76,9 +77,9 @@
 |---|---|---|---|
 | Язык | Rust (edition 2021) | Python | |
 | Сборка | `cargo` (+ workspace) | — | зависимости одной строкой, без CMake/vcpkg |
-| Окно/контекст | `winit` + `glutin` | glfw (py), moderngl | OpenGL 4.x core |
-| GPU | `glow` (OpenGL 4.x) | moderngl | **GLSL-шейдеры переносим дословно** |
-| GUI | **`egui`** (immediate-mode) + `egui_glow` | DearPyGui | стилизуем под ретро-глитч |
+| Окно/контекст | **`eframe`** (связывает winit+glutin+glow) | glfw (py), moderngl | даёт окно + raw glow-контекст |
+| GPU | `glow` (OpenGL 4.x), через `eframe::glow` | moderngl | **GLSL-шейдеры переносим дословно**; кастомный GL в вьюпорт через `egui::PaintCallback` + `egui_glow::CallbackFn` |
+| GUI | **`egui`** (immediate-mode, через `eframe`) | DearPyGui | стилизуем под ретро-глитч |
 | Нодовый граф | `egui_node_graph` (или свой на egui) | — | граф эффектов |
 | Графики/волна | `egui_plot` | — | таймлайн-волна, спектр |
 | Аудио-анализ | `aubio` (биндинг) или свой онсет/темпо + `rustfft` | librosa | beat tracking без Python |
@@ -280,7 +281,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 ## 9. ЧЕКЛИСТ ЧЕКПОИНТОВ И ЭФФЕКТОВ
 
 **Фазы:**
-- [ ] C0 Scaffold (окно+imgui+cmake)
+- [x] C0 Scaffold (cargo + winit+glow+egui окно) — `24c39c3..` build OK, окно запускается
 - [ ] C1 Core GFX (ping-pong, passthrough)
 - [ ] C2 Media decode → GL
 - [ ] C3 Effect graph + порт шейдеров
@@ -320,3 +321,4 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 
 - 2026-06-14 — План создан (`automatch2/PLAN.md`). Структура, стек, каталог эффектов, дорожная карта, чеклист зафиксированы. Verify: n/a (документ). Коммит: `6c4df20`.
 - 2026-06-14 — Решение по стеку: **Rust + glow + egui** (вместо C++). Причина — дословный перенос GLSL-шейдеров (glow=OpenGL) + безопасность/cargo. Обновлены §3–§5, §7–§8, §10. wgpu отложен (требует WGSL). Verify: n/a (документ).
+- 2026-06-14 — **C0 (Phase 0) ГОТОВ.** Поставлен Rust (rustup, stable-msvc). Создан cargo-скелет `automatch2/` на `eframe` (winit+glutin+glow+egui): окно «automatch 2 — C0 scaffold», egui-панель показывает версию OpenGL и FPS. Решено брать GL-контекст через `eframe::glow` и рисовать кастомный GL в вьюпорт через `egui::PaintCallback`+`egui_glow::CallbackFn`. Verify: `cargo build` Finished (1m21s); бинарник запущен — окно жило 8с без падения. Файлы: `Cargo.toml`, `src/main.rs`, `.gitignore` (игнор `/target`).

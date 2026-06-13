@@ -1,0 +1,18 @@
+[package]
+name = "automatch2"
+version = "0.0.1"
+edition = "2021"
+description = "AutoMatch 2 — beat-synced VFX auto-editor (Rust port). Phase 0 scaffold."
+
+[dependencies]
+# eframe bundles winit + glutin + glow and exposes the raw glow (OpenGL)
+# context, so we get an egui UI now and a GL surface for custom effect
+# rendering later — without hand-wiring the window/context stack.
+eframe = "0.28"
+
+[profile.dev]
+opt-level = 1        # keep debug builds responsive for a realtime tool
+
+[profile.release]
+opt-level = 3
+lto = "thin"
