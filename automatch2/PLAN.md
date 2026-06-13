@@ -14,9 +14,9 @@
 | Фаза | **Phase 0 — Research & Scaffolding** |
 | Шаг | 0.0 — план составлен, окружение ещё не поднято |
 | Последнее проверено (verified) | — (нечего проверять, кода ещё нет) |
-| Следующее действие | Phase 0 → задача R1: собрать референсы с GitHub (см. §7), затем S1: CMake-скелет |
+| Следующее действие | Phase 0 → задача R1: собрать референсы с GitHub (см. §7), затем S1: cargo-скелет |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | — |
+| Последний чекпоинт-коммит | `6c4df20` (план) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 
 **Прогресс по фазам:** ▱▱▱▱▱▱▱▱▱▱ 0/10
@@ -52,7 +52,7 @@
 
 ## 3. ВИДЕНИЕ ПРОДУКТА
 
-**Что строим:** нативный (C++), быстрый, красивый инструмент для бит-синхронного авто-монтажа с
+**Что строим:** нативный (Rust), быстрый, красивый инструмент для бит-синхронного авто-монтажа с
 проф-уровнем глитч/VFX. Цель — **конкурентоспособный, уникальный продукт**: ниша между
 «TikTok-эффектами в один тап» и тяжёлыми Resolume/TouchDesigner. Фишки-дифференциаторы:
 
@@ -66,55 +66,63 @@
 
 ---
 
-## 4. ЦЕЛЕВОЙ СТЕК (C++)
+## 4. ЦЕЛЕВОЙ СТЕК (Rust)
+
+Решение: **Rust + glow (OpenGL) + egui.** Главная причина — GLSL-шейдеры из v1 переносятся
+дословно (glow — тонкая обёртка OpenGL, шейдеры остаются GLSL), плюс безопасность памяти,
+`cargo` и один бинарник вместо боли CMake/PyInstaller.
 
 | Слой | Выбор | Замена чему в v1 | Примечание |
 |---|---|---|---|
-| Язык | C++20 | Python | |
-| Сборка | CMake + vcpkg (manifest) | — | воспроизводимые зависимости |
-| Окно/контекст | GLFW + glad | glfw (py), moderngl | OpenGL 4.x core |
-| GPU | OpenGL 4.5 (DSA) | moderngl | шейдеры GLSL переносим почти как есть |
-| GUI | **Dear ImGui (docking branch)** + ImPlot + **ImNodes** | DearPyGui | нодовый граф + таймлайн |
-| Аудио-анализ | **aubio** (beat/onset/tempo) + KissFFT | librosa | beat tracking без Python |
-| Видео I/O | FFmpeg: сначала CLI-пайп (как v1), потом libav* (decode→GL, encode) | imageio_ffmpeg/cv2 | фазируем: CLI → нативный libav |
-| Картинка CPU | stb_image / stb_image_write | cv2 | минимум CPU-операций |
-| Сериализация | nlohmann/json | json (py) | сессии/пресеты |
-| Депт/AI (опц.) | onnxruntime + depth_anything (уже в `models/`) | depth.py | стретч-цель |
+| Язык | Rust (edition 2021) | Python | |
+| Сборка | `cargo` (+ workspace) | — | зависимости одной строкой, без CMake/vcpkg |
+| Окно/контекст | `winit` + `glutin` | glfw (py), moderngl | OpenGL 4.x core |
+| GPU | `glow` (OpenGL 4.x) | moderngl | **GLSL-шейдеры переносим дословно** |
+| GUI | **`egui`** (immediate-mode) + `egui_glow` | DearPyGui | стилизуем под ретро-глитч |
+| Нодовый граф | `egui_node_graph` (или свой на egui) | — | граф эффектов |
+| Графики/волна | `egui_plot` | — | таймлайн-волна, спектр |
+| Аудио-анализ | `aubio` (биндинг) или свой онсет/темпо + `rustfft` | librosa | beat tracking без Python |
+| Видео I/O | FFmpeg: сначала CLI-пайп (как v1), потом `ffmpeg-next` (libav) | imageio_ffmpeg/cv2 | фазируем: CLI → нативный libav |
+| Картинка CPU | `image` crate | cv2 | минимум CPU-операций |
+| Сериализация | `serde` + `serde_json` | json (py) | сессии/пресеты |
+| Многопоточность | `std::thread` / `crossbeam` каналы | — | конвейер decode→render→encode |
+| Депт/AI (опц.) | `ort` (onnxruntime) + depth_anything (в `models/`) | depth.py | стретч-цель |
 
 Принцип: **GLSL-шейдеры из `analogvfx/shaders/` — наш актив.** Они переносимы; в automatch2 их
-host-логика (uniforms, ping-pong, FBO) переезжает в C++, сами шейдеры копируем в
+host-логика (uniforms, ping-pong, FBO) переезжает в Rust (glow), сами шейдеры копируем в
 `automatch2/shaders/` и дорабатываем (НЕ редактируя оригиналы v1).
+
+> Альтернатива на будущее: `wgpu` (Vulkan/DX12/Metal) — современнее, но требует WGSL,
+> т.е. переписывания шейдеров. Отложено ради сохранения GLSL-актива.
 
 ---
 
 ## 5. АРХИТЕКТУРА AUTOMATCH 2
 
-Модули (каждый — отдельная папка/таргет, чистые границы):
+Cargo-воркспейс; каждый модуль — крейт или модуль с чистыми границами:
 
 ```
 automatch2/
-  CMakeLists.txt
-  vcpkg.json
-  third_party/        (imgui, imnodes, glad, stb, ... через vcpkg или сабмодули)
+  Cargo.toml          (workspace)
   shaders/            (GLSL: копии из v1 + новые, дорабатываем тут)
-  src/
-    core/             Engine, RenderGraph, FBO-pool, GLTexture, время/часы
-    gfx/              Shader, Program, Pass, UniformBuffer, PingPong
-    effects/          EffectBase + реестр; каждый эффект = класс + .frag
+  crates/ (или src/ с модулями)
+    core/             Engine, RenderGraph, FBO-пул, GlTexture, часы/время
+    gfx/              Shader, Program, Pass, UniformBuffer, PingPong (glow)
+    effects/          трейт Effect + реестр; каждый эффект = тип + .frag
     media/            MediaIO (decode→GPU), Encoder, ClipPool, prefetch
-    audio/            AudioAnalysis (aubio), BeatGrid, спектр/огибающие
+    audio/            AudioAnalysis (aubio/rustfft), BeatGrid, спектр/огибающие
     timeline/         Timeline, Cut, TransitionEngine, beat-sync builder
-    mod/              ModMatrix (LFO + аудио-огибающие → параметры)
-    state/            Params/Config (отражает state.py), пресеты, сессии
-    ui/               ImGui-приложение: viewport, node-editor, timeline, panels, theme
-    datamosh/         нативный битстрим-мош (порт datamosh_bitstream.py на libav)
+    modmatrix/        ModMatrix (LFO + аудио-огибающие → параметры)
+    state/            Params/Config (отражает state.py), пресеты, сессии (serde)
+    ui/               egui-приложение: viewport, node-editor, timeline, panels, theme
+    datamosh/         нативный битстрим-мош (порт datamosh_bitstream.py на ffmpeg-next)
     app/              main(), связывание, CLI
   tests/              минимальные проверки (golden-кадры, парсер AVI и т.п.)
 ```
 
 **Поток данных (render):** ClipPool → кадр в GL-текстуру (PBO upload) → RenderGraph
-(ping-pong FBO, проход на эффект) → финальный composite → (preview: на экран | export: PBO
-download → Encoder). Параметры эффектов — в UBO, обновляются модуляцией пер-кадр.
+(ping-pong FBO, проход на эффект) → финальный composite → (preview: на экран через egui_glow |
+export: PBO download → Encoder). Параметры эффектов — в UBO, обновляются модуляцией пер-кадр.
 
 **Оптимизация (с самого начала):**
 - Кадры живут на GPU; download только на экспорт.
@@ -195,8 +203,8 @@ download → Encoder). Параметры эффектов — в UBO, обно�
 - Датамош: `ucnv/datamosh`, `itsKaspar`, avant-garde AVI-байт-скрипты (сверить наш парсер).
 - Live-visuals идеи: `Hydra` (ojack/hydra), Milkdrop/`Butterchurn`, `TouchDesigner` примеры, Resolume.
 - Beat/onset: `aubio/aubio`, `Spleeter`-free альтернативы для битов.
-- UI: `ocornut/imgui` (docking), `epezent/implot`, `Nelarius/imnodes`, примеры node-graph редакторов (шейдер-граф).
-- Видео-движки на C++/GL: `bkaradzic/bgfx` (как ориентир архитектуры), `processing`/`openFrameworks` аддоны.
+- UI (Rust): `emilk/egui`, `egui_node_graph`, `egui_plot`, `grovesNL/glow`, примеры node-graph редакторов (шейдер-граф).
+- Видео-движки/идеи: `bkaradzic/bgfx` (ориентир архитектуры), `processing`/`openFrameworks` аддоны, Rust: `ffmpeg-next`, `aubio`-rs, `rustfft`.
 - Оптический поток на GPU: реализации Farneback/HS на GLSL, NVIDIA Optical Flow (опц.).
 - Рынок/стартапы: какие фишки у TikTok CapCut эффектов, Kaiber, Runway (глитч-стиль) — что взять как планку.
 
@@ -208,10 +216,10 @@ download → Encoder). Параметры эффектов — в UBO, обно�
 
 ### Phase 0 — Research & Scaffolding
 - R1: собрать референсы (§7), записать выводы и 3 «планки» по UI и эффектам.
-- S1: `CMakeLists.txt` + `vcpkg.json` (glfw, glad, imgui[docking], implot, imnodes, nlohmann-json, stb, aubio, kissfft).
-- S2: пустое окно GLFW + GL 4.5 контекст + ImGui «Hello», dockspace.
-- **Verify:** окно открывается, рисует ImGui-панель, чистый выход, FPS-счётчик.
-- **Checkpoint C0:** `automatch2: scaffold (window+imgui+cmake)`.
+- S1: `cargo` workspace + `Cargo.toml` (winit, glutin, glow, egui, egui_glow, egui_plot, serde, serde_json, image; позже ffmpeg-next, aubio/rustfft).
+- S2: пустое окно winit + GL 4.x контекст (glutin/glow) + egui «Hello» с панелью.
+- **Verify:** `cargo run` открывает окно, рисует egui-панель, чистый выход, FPS-счётчик.
+- **Checkpoint C0:** `automatch2: scaffold (winit+glow+egui+cargo)`.
 
 ### Phase 1 — Core GFX engine
 - Программы/шейдеры (загрузка, кэш юниформов), fullscreen-quad, FBO-пул, ping-pong, GLTexture.
@@ -226,7 +234,7 @@ download → Encoder). Параметры эффектов — в UBO, обно�
 - **Checkpoint C2.**
 
 ### Phase 3 — Effect graph + порт первых шейдеров
-- EffectBase + реестр; перенести 6–8 шейдеров из v1 (rgb_split, wave_warp, crt_monitor, motion_trails, pixel_sort, datamosh-GPU, kaleidoscope, dither).
+- Трейт `Effect` + реестр; перенести 6–8 шейдеров из v1 (rgb_split, wave_warp, crt_monitor, motion_trails, pixel_sort, datamosh-GPU, kaleidoscope, dither).
 - Линейная цепочка эффектов с mix/blend (как `EffectConfig`).
 - **Verify:** включение/выключение/микс каждого эффекта меняет картинку как в v1; сравнение «на глаз» с эталоном v1.
 - **Checkpoint C3.**
@@ -240,12 +248,12 @@ download → Encoder). Параметры эффектов — в UBO, обно�
 
 ### Phase 5 — Export + нативный датамош
 - Encoder: кадры с GPU → ffmpeg (сначала CLI-пайп), мукс аудио.
-- Порт `datamosh_bitstream.py` на C++/libav (bloom/smear/fine-scale).
+- Порт `datamosh_bitstream.py` на Rust (ffmpeg-next/libav): bloom/smear/fine-scale.
 - **Verify:** экспортный mp4 играбелен, длительность синхронна музыке; датамош виден в файле и совпадает по логике с v1.
 - **Checkpoint C5.**
 
 ### Phase 6 — UI overhaul (максимально)
-- Dockspace: Viewport (живое превью) | Node-graph эффектов (ImNodes) | Timeline (волна+биты+лейны) | Параметры | Браузер пресетов.
+- egui-док: Viewport (живое превью) | Node-graph эффектов (egui_node_graph) | Timeline (волна+биты+лейны) | Параметры | Браузер пресетов.
 - Ретро-глитч тема (моно-шрифт, CRT-акценты), плавность, горячие клавиши.
 - Модуляция визуально (кривые/маршруты), превью-миниатюры эффектов.
 - **Verify:** можно собрать монтаж мышью от и до (выбор медиа → граф → таймлайн → экспорт) без правки кода.
@@ -298,14 +306,17 @@ download → Encoder). Параметры эффектов — в UBO, обно�
 
 ## 10. РИСКИ И РЕШЕНИЯ
 
-- **libav сложен** → фазируем: сначала ffmpeg-CLI пайп (быстро рабочее), потом нативный libav.
+- **libav/ffmpeg-next сложен** → фазируем: сначала ffmpeg-CLI пайп (быстро рабочее), потом нативный `ffmpeg-next`.
 - **Оптический поток дорогой** → начать с дешёвой GLSL-аппроксимации (block-matching/HS), при нужде NVIDIA OF.
+- **egui ≠ Dear ImGui по стилю** → темизуем egui под ретро-глитч; node-graph через `egui_node_graph`.
+- **Незнакомый GPU-interop на Rust** → маленькие шаги с проверкой; glow повторяет семантику moderngl из v1.
 - **Сравнение с v1** → держать v1 рядом как эталон «как должно выглядеть» (НЕ трогая его файлы).
 - **Расползание объёма** → строго «кусок→проверка→коммит», маленькие шаги, чекбоксы в §9.
-- **Кросс-платформа** → CMake/vcpkg сразу, но цель №1 — Windows.
+- **Кросс-платформа** → cargo кросс-платформен из коробки, но цель №1 — Windows.
 
 ---
 
 ## 11. ЖУРНАЛ (дописывать снизу, кратко: дата — что сделано — verify — коммит)
 
-- 2026-06-14 — План создан (`automatch2/PLAN.md`). Структура, стек, каталог эффектов, дорожная карта, чеклист зафиксированы. Verify: n/a (документ). Коммит: см. §0.
+- 2026-06-14 — План создан (`automatch2/PLAN.md`). Структура, стек, каталог эффектов, дорожная карта, чеклист зафиксированы. Verify: n/a (документ). Коммит: `6c4df20`.
+- 2026-06-14 — Решение по стеку: **Rust + glow + egui** (вместо C++). Причина — дословный перенос GLSL-шейдеров (glow=OpenGL) + безопасность/cargo. Обновлены §3–§5, §7–§8, §10. wgpu отложен (требует WGSL). Verify: n/a (документ).
