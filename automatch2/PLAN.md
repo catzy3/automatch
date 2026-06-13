@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | `cargo build` Finished (1m21s) + бинарник запущен, окно жило 8с без падения; egui-панель + glow-контекст рабочие |
 | Следующее действие | Phase 1 — Core GFX: `gfx` (Shader/Program с кэшем юниформов, fullscreen-quad, FBO-пул, ping-pong) + passthrough-проход PNG на экран через `egui::PaintCallback`+`egui_glow` |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | _обновится после push C0_ |
+| Последний чекпоинт-коммит | `e841b8e` (C0 scaffold) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
@@ -281,7 +281,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 ## 9. ЧЕКЛИСТ ЧЕКПОИНТОВ И ЭФФЕКТОВ
 
 **Фазы:**
-- [x] C0 Scaffold (cargo + winit+glow+egui окно) — `24c39c3..` build OK, окно запускается
+- [x] C0 Scaffold (cargo + winit+glow+egui окно) — `e841b8e` build OK, окно запускается
 - [ ] C1 Core GFX (ping-pong, passthrough)
 - [ ] C2 Media decode → GL
 - [ ] C3 Effect graph + порт шейдеров
