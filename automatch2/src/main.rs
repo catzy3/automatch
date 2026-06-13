@@ -10,22 +10,33 @@
 
 use eframe::egui;
 
+mod gfx;
+
 struct AutomatchApp {
     /// OpenGL version string read once at startup — proof the glow context is live.
     gl_version: String,
+    /// Result of the GFX pipeline self-test (compile→upload→draw→readback).
+    gfx_selftest: String,
+    gfx_ok: bool,
     frames: u64,
 }
 
 impl AutomatchApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let gl_version = match cc.gl.as_ref() {
+        let (gl_version, gfx_selftest, gfx_ok) = match cc.gl.as_ref() {
             Some(gl) => {
                 use eframe::glow::HasContext as _;
-                unsafe { gl.get_parameter_string(eframe::glow::VERSION) }
+                let ver = unsafe { gl.get_parameter_string(eframe::glow::VERSION) };
+                let (msg, ok) = match gfx::selftest(gl) {
+                    Ok(d) => (format!("PASS — {d}"), true),
+                    Err(e) => (format!("FAIL — {e}"), false),
+                };
+                eprintln!("GFX SELFTEST: {msg}");
+                (ver, msg, ok)
             }
-            None => "<no GL context>".to_owned(),
+            None => ("<no GL context>".to_owned(), "skipped (no gl)".to_owned(), false),
         };
-        Self { gl_version, frames: 0 }
+        Self { gl_version, gfx_selftest, gfx_ok, frames: 0 }
     }
 }
 
@@ -42,6 +53,13 @@ impl eframe::App for AutomatchApp {
             ui.label(format!("frames: {}", self.frames));
             ui.add_space(8.0);
             ui.label("✓ окно, egui-панель и GL-контекст работают");
+            ui.separator();
+            let color = if self.gfx_ok {
+                egui::Color32::from_rgb(80, 220, 120)
+            } else {
+                egui::Color32::from_rgb(230, 80, 80)
+            };
+            ui.colored_label(color, format!("GFX selftest: {}", self.gfx_selftest));
         });
         // animate so the FPS/frame counters update continuously
         ctx.request_repaint();

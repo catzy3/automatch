@@ -11,16 +11,20 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 0 — ЗАВЕРШЕНА** → начинаем Phase 1 |
-| Шаг | C0 готов: cargo-скелет на eframe (winit+glow+egui), окно открывается |
-| Последнее проверено (verified) | `cargo build` Finished (1m21s) + бинарник запущен, окно жило 8с без падения; egui-панель + glow-контекст рабочие |
-| Следующее действие | Phase 1 — Core GFX: `gfx` (Shader/Program с кэшем юниформов, fullscreen-quad, FBO-пул, ping-pong) + passthrough-проход PNG на экран через `egui::PaintCallback`+`egui_glow` |
+| Фаза | **Phase 1 — ЗАВЕРШЕНА** → начинаем Phase 2 |
+| Шаг | C1 готов: модуль `gfx` (Program+кэш юниформов, Quad, Fbo, PingPong) + verified passthrough-проход |
+| Последнее проверено (verified) | `GFX SELFTEST: PASS` — known-текстура (10,150,240) прогнана через GLSL-проход (свиззл bgr) в FBO, readback = (240,150,10). Доказан весь GL-конвейер на GPU. Сборка чистая, без warnings |
+| Следующее действие | Phase 2 — Media I/O: декод видео в GL-текстуру (ffmpeg CLI → rawvideo пайп, upload по PBO), базовый плеер в окне |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `e841b8e` (C0 scaffold) |
+| Последний чекпоинт-коммит | _обновится после push C1_ |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▱▱▱▱▱▱▱▱▱ 1/10 (C0)
+**Прогресс по фазам:** ▰▰▱▱▱▱▱▱▱▱ 2/10 (C0, C1)
+
+> Примечание: визуальный вывод прохода в egui-вьюпорт (через `PaintCallback`) отложен до
+> Phase 2, когда появятся реальные кадры для показа. C1 проверен headless-readback'ом —
+> это надёжнее, чем «посмотреть глазами».
 
 ---
 
@@ -282,7 +286,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 
 **Фазы:**
 - [x] C0 Scaffold (cargo + winit+glow+egui окно) — `e841b8e` build OK, окно запускается
-- [ ] C1 Core GFX (ping-pong, passthrough)
+- [x] C1 Core GFX (Program+кэш, Quad, Fbo, PingPong) — selftest PASS (readback свиззла)
 - [ ] C2 Media decode → GL
 - [ ] C3 Effect graph + порт шейдеров
 - [ ] C4 Audio + timeline (beat-sync)
@@ -322,3 +326,4 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — План создан (`automatch2/PLAN.md`). Структура, стек, каталог эффектов, дорожная карта, чеклист зафиксированы. Verify: n/a (документ). Коммит: `6c4df20`.
 - 2026-06-14 — Решение по стеку: **Rust + glow + egui** (вместо C++). Причина — дословный перенос GLSL-шейдеров (glow=OpenGL) + безопасность/cargo. Обновлены §3–§5, §7–§8, §10. wgpu отложен (требует WGSL). Verify: n/a (документ).
 - 2026-06-14 — **C0 (Phase 0) ГОТОВ.** Поставлен Rust (rustup, stable-msvc). Создан cargo-скелет `automatch2/` на `eframe` (winit+glutin+glow+egui): окно «automatch 2 — C0 scaffold», egui-панель показывает версию OpenGL и FPS. Решено брать GL-контекст через `eframe::glow` и рисовать кастомный GL в вьюпорт через `egui::PaintCallback`+`egui_glow::CallbackFn`. Verify: `cargo build` Finished (1m21s); бинарник запущен — окно жило 8с без падения. Файлы: `Cargo.toml`, `src/main.rs`, `.gitignore` (игнор `/target`).
+- 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
