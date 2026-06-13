@@ -22,7 +22,7 @@ from automatch import (
     AutoEditSettings, PALETTES, USER_EFFECTS, EFFECT_LABELS_RU,
     USER_EFFECTS_NO_MIX,
     TextCardSettings, VIBE_TEXTS, CLIP_MODES,
-    BlobTrackSettings,
+    BlobTrackSettings, DatamoshRenderSettings,
     audio_duration,
     preview as automatch_preview, run as automatch_run,
 )
@@ -40,7 +40,7 @@ _FX_SHORT = {
     "datamosh":      "Datamosh",
     "vhs":           "VHS",
     "ascii_mosaic":  "ASCII",
-    "crt":           "CRT",
+    "crt_monitor":   "CRT",
     "dither":        "Dither",
     "kaleidoscope":         "Kaleido",
     "slit_scan":            "Slit-scan",
@@ -120,10 +120,14 @@ _FX_BLEND: dict[str, int] = {k: 0 for k in USER_EFFECTS}
 _BLEND_MODES = ("Cross (норм.)", "Add", "Screen", "Multiply", "Overlay",
                 "Difference", "Lighten", "Darken", "Dodge", "Burn", "Subtract")
 # Effects whose shader actually honours u_blend (experiment scope: FM + CRT).
-_BLEND_FX = ("crt", "crt_monitor")
+_BLEND_FX = ("crt_monitor",)
 
 # which effect is currently focused in the side params panel
 _SELECTED_FX: str = ""
+
+# Easter egg: first-beat ASCII logo flash. Toggled from the hidden menu that
+# unlocks when the user clicks the header title and types "[shi o kiku]".
+_LOGO_FLASH: bool = True
 
 # theme handles — populated after dpg.setup_dearpygui()
 _BTN_THEMES:     dict[str, int] = {}   # state → theme tag
@@ -317,7 +321,7 @@ _FX_ABBR = {
     "datamosh":      "DMSH",
     "vhs":           "VHS",
     "ascii_mosaic":  "ASCII",
-    "crt":           "CRT",
+    "crt_monitor":   "CRT",
     "dither":        "DTHR",
     "kaleidoscope":         "KALEI",
     "slit_scan":            "SLIT",
@@ -423,7 +427,6 @@ def _set_fx_state(kind: str, state: str):
             dpg.bind_item_theme(mix, _SLIDER_ACTIVE if active else _SLIDER_DIMMED)
     if dpg.does_item_exist(rnd):
         dpg.configure_item(rnd, enabled=active)
-    _refresh_browser()
 
 
 def _cycle_fx_state(_s, _a, kind: str):
@@ -612,7 +615,7 @@ def _refresh_side_panel():
     for _k in (
         "thermal", "cellular", "elastic_grid", "crt_monitor",
         "glitch", "modulate", "pixelate",
-        "vhs", "crt", "wave_warp", "datamosh", "motion_trails",
+        "vhs", "wave_warp", "datamosh", "motion_trails",
         "rgb_split", "duotone", "luma_key", "edges", "pixel_swap",
         "found_footage", "chromatic_aberration", "color_posterize",
         "swirl", "iridescent_foil", "motion_blur", "advanced_glitch",
@@ -1054,6 +1057,152 @@ def _apply_pixelate_params(d: dict) -> None:
                          d["pixelate_fb_mode"])
 
 
+# ─── Generic registry for the remaining side-panel controls ──────────────────
+# Until now these side panels existed in the UI but their values were never
+# collected, so moving the sliders did nothing.  One table maps every control
+# to its state.Params field; collect/apply walk it generically.
+#   kind: "f" float slider | "chk" checkbox | "combo" item→index | "color" rgb
+# For "color", `target` is a 3-tuple of channel field names (normalised 0..1).
+_DM_ALGO_ITEMS    = ("0 · Legacy P-frame", "1 · Optical-flow mosh")
+_POST_COLOR_ITEMS = ("0 · Luma", "1 · Per-channel", "2 · Palette snap")
+
+_EXTRA_FX_WIDGETS = (
+    # vhs
+    ("am_vhs_tracking_noise", "f", "vhs_tracking_noise", None),
+    ("am_vhs_line_jitter",    "f", "vhs_line_jitter",    None),
+    ("am_vhs_chroma_blur",    "f", "vhs_chroma_blur",    None),
+    ("am_vhs_color_loss",     "f", "vhs_color_loss",     None),
+    ("am_vhs_head_switch",    "f", "vhs_head_switch",    None),
+    # wave_warp
+    ("am_ww_amp1",      "f",   "wave_amp1",      None),
+    ("am_ww_freq1",     "f",   "wave_freq1",     None),
+    ("am_ww_speed1",    "f",   "wave_speed1",    None),
+    ("am_ww_chromatic", "f",   "wave_chromatic", None),
+    ("am_ww_angle",     "f",   "wave_angle",     None),
+    ("am_ww_polar",     "chk", "wave_polar",     None),
+    # datamosh
+    ("am_dm_strength",   "f",     "datamosh_strength",  None),
+    ("am_dm_freeze",     "f",     "datamosh_freeze",    None),
+    ("am_dm_period",     "f",     "datamosh_period",    None),
+    ("am_dm_chaos",      "f",     "datamosh_chaos",     None),
+    ("am_dm_algo_combo", "combo", "datamosh_algorithm", _DM_ALGO_ITEMS),
+    # motion_trails
+    ("am_mt_decay",     "f", "trails_decay",     None),
+    ("am_mt_threshold", "f", "trails_threshold", None),
+    ("am_mt_chaos",     "f", "trails_chaos",     None),
+    ("am_mt_secondary", "f", "trails_secondary", None),
+    # rgb_split  (angle/blur have no backing uniform → not mapped)
+    ("am_rgb_offset",    "f", "rgb_shift_amount",   None),
+    ("am_rgb_wave_freq", "f", "rgb_wave_frequency", None),
+    # duotone  (accent_* is shared with edges in the renderer)
+    ("am_duo_strength", "f",     "duotone_strength", None),
+    ("am_duo_midpoint", "f",     "duotone_midpoint", None),
+    ("am_duo_accent",   "color", ("accent_r", "accent_g", "accent_b"), None),
+    # luma_key
+    ("am_lk_lift",   "f",   "luma_lift",   None),
+    ("am_lk_gain",   "f",   "luma_gain",   None),
+    ("am_lk_gamma",  "f",   "luma_gamma",  None),
+    ("am_lk_invert", "chk", "luma_invert", None),
+    # edges  (color shares accent_* with duotone; soften → thickness)
+    ("am_ed_threshold", "f",     "edges_threshold", None),
+    ("am_ed_soften",    "f",     "edges_thickness", None),
+    ("am_ed_color",     "color", ("accent_r", "accent_g", "accent_b"), None),
+    # pixel_swap  (3 GUI controls → best-effort map onto shader params)
+    ("am_ps_block_size", "f", "pixel_swap_radius",    None),
+    ("am_ps_chance",     "f", "pixel_swap_threshold", None),
+    ("am_ps_drift",      "f", "pixel_swap_chaos",     None),
+    # found_footage
+    ("am_ff_dropout_density",  "f", "ff_dropout_density",  None),
+    ("am_ff_dropout_strength", "f", "ff_dropout_strength", None),
+    ("am_ff_warp_amount",      "f", "ff_warp_amount",      None),
+    ("am_ff_ghost_opacity",    "f", "ff_ghost_opacity",    None),
+    ("am_ff_chroma_bleed",     "f", "ff_chroma_bleed",     None),
+    ("am_ff_luma_crush",       "f", "ff_luma_crush",       None),
+    # chromatic_aberration
+    ("am_ca_offset", "f", "ca_offset", None),
+    ("am_ca_radial", "f", "ca_radial", None),
+    ("am_ca_angle",  "f", "ca_angle",  None),
+    ("am_ca_spin",   "f", "ca_spin",   None),
+    # color_posterize
+    ("am_post_levels",           "f",     "post_levels",     None),
+    ("am_post_dither_mix",       "f",     "post_dither_mix", None),
+    ("am_post_color_mode_combo", "combo", "post_color_mode", _POST_COLOR_ITEMS),
+    # swirl
+    ("am_swirl_strength", "f", "swirl_strength", None),
+    ("am_swirl_radius",   "f", "swirl_radius",   None),
+    ("am_swirl_cx",       "f", "swirl_cx",       None),
+    ("am_swirl_cy",       "f", "swirl_cy",       None),
+    ("am_swirl_animate",  "f", "swirl_animate",  None),
+    # iridescent_foil
+    ("am_ir_hue_range", "f", "ir_hue_range", None),
+    ("am_ir_speed",     "f", "ir_speed",     None),
+    ("am_ir_metallic",  "f", "ir_metallic",  None),
+    ("am_ir_scale",     "f", "ir_scale",     None),
+    ("am_ir_opacity",   "f", "ir_opacity",   None),
+    # motion_blur
+    ("am_mb_length",  "f", "mb_length",  None),
+    ("am_mb_angle",   "f", "mb_angle",   None),
+    ("am_mb_radial",  "f", "mb_radial",  None),
+    ("am_mb_samples", "f", "mb_samples", None),
+    # advanced_glitch
+    ("am_ag_block_size",   "f", "ag_block_size",   None),
+    ("am_ag_shift_amount", "f", "ag_shift_amount", None),
+    ("am_ag_chance",       "f", "ag_chance",       None),
+    ("am_ag_color_shift",  "f", "ag_color_shift",  None),
+    ("am_ag_speed",        "f", "ag_speed",        None),
+)
+
+
+def _collect_extra_fx_params() -> dict:
+    """Collect every previously-orphaned side-panel control into a flat
+    {Params_field: float} dict.  Combo → item index, checkbox → 0/1,
+    color_edit → three normalised channels."""
+    out: dict = {}
+    for tag, kind, target, items in _EXTRA_FX_WIDGETS:
+        if not dpg.does_item_exist(tag):
+            continue
+        v = dpg.get_value(tag)
+        if kind == "f":
+            out[target] = float(v)
+        elif kind == "chk":
+            out[target] = 1.0 if bool(v) else 0.0
+        elif kind == "combo":
+            out[target] = _combo_index(tag, items)
+        elif kind == "color":
+            r, gg, b = _color_rgb01(tag)   # dpg 0..255 → 0..1, matches codebase
+            for fld, c in zip(target, (r, gg, b)):
+                out[fld] = float(c)
+    return out
+
+
+def _apply_extra_fx_params(d: dict) -> None:
+    """Reverse of _collect_extra_fx_params — restore GUI widgets from a saved
+    session dict.  Safe before widgets exist (does_item_exist guards)."""
+    if not d:
+        return
+    for tag, kind, target, items in _EXTRA_FX_WIDGETS:
+        if not dpg.does_item_exist(tag):
+            continue
+        try:
+            if kind == "f":
+                if target in d:
+                    dpg.set_value(tag, float(d[target]))
+            elif kind == "chk":
+                if target in d:
+                    dpg.set_value(tag, float(d[target]) >= 0.5)
+            elif kind == "combo":
+                if target in d:
+                    _set_combo_index(tag, items, d[target])
+            elif kind == "color":
+                fr, fg, fb = target
+                if fr in d:
+                    rgb = [int(round(float(d.get(c, 0.0)) * 255))
+                           for c in (fr, fg, fb)]
+                    dpg.set_value(tag, (rgb[0], rgb[1], rgb[2], 255))
+        except Exception:
+            pass
+
+
 def _collect_ascii_text() -> str:
     """User-typed glyph string for the ASCII atlas (empty = use default)."""
     if dpg.does_item_exist("am_ascii_text"):
@@ -1285,11 +1434,14 @@ def _dump_session() -> dict:
             "glitch_params":       s.glitch_params,
             "modulate_params":     s.modulate_params,
             "pixelate_params":     s.pixelate_params,
+            "extra_fx_params":     s.extra_fx_params,
             "effect_overrides":    s.effect_overrides,
             "text_cards":          asdict(s.text_cards),
             "blob_track":          asdict(s.blob_track),
+            "datamosh_render":     asdict(s.datamosh_render),
             "mod_config":          s.mod_config,
             "effect_chain":        s.effect_chain,
+            "logo_flash":          bool(s.logo_flash),
             "chain_enabled":       bool(dpg.get_value("chain_enabled")) if dpg.does_item_exist("chain_enabled") else False,
         },
         "fx_state": dict(_FX_STATE),
@@ -1419,9 +1571,13 @@ def _apply_session(data: dict) -> None:
     _apply_glitch_params(s.get("glitch_params", {}) or {})
     _apply_modulate_params(s.get("modulate_params", {}) or {})
     _apply_pixelate_params(s.get("pixelate_params", {}) or {})
+    _apply_extra_fx_params(s.get("extra_fx_params", {}) or {})
 
     # ── Blob track (full restore: incl. tracker_mode) ──
     _apply_blob_track(s.get("blob_track", {}) or {})
+
+    # ── Datamosh (bitstream) render post-process ──
+    _apply_datamosh_render(s.get("datamosh_render", {}) or {})
 
     # ── Mod Matrix ──
     _apply_mod_config(s.get("mod_config", {}) or {})
@@ -1431,6 +1587,12 @@ def _apply_session(data: dict) -> None:
     _apply_effect_chain_gui(saved_chain)
     if s.get("chain_enabled") and dpg.does_item_exist("chain_enabled"):
         dpg.set_value("chain_enabled", True)
+
+    # ── secret logo-flash toggle (default on if absent) ──
+    global _LOGO_FLASH
+    _LOGO_FLASH = bool(s.get("logo_flash", True))
+    if dpg.does_item_exist("logo_flash_chk"):
+        dpg.set_value("logo_flash_chk", _LOGO_FLASH)
 
     # ── text cards: full restore (enabled / lines / vibe / colours / …) ──
     _tc = s.get("text_cards", {}) or {}
@@ -1685,12 +1847,15 @@ def _collect_settings() -> AutoEditSettings:
         glitch_params        = _collect_glitch_params(),
         modulate_params      = _collect_modulate_params(),
         pixelate_params      = _collect_pixelate_params(),
+        extra_fx_params      = _collect_extra_fx_params(),
         bypass_montage       = bool(dpg.get_value("bypass_montage_chk")) if dpg.does_item_exist("bypass_montage_chk") else False,
         effect_overrides     = _collect_effect_overrides(),
         text_cards           = _collect_text_cards(),
         blob_track           = _collect_blob_track(),
         mod_config           = _collect_mod_config(),
         effect_chain         = _collect_effect_chain(),
+        logo_flash           = bool(_LOGO_FLASH),
+        datamosh_render      = _collect_datamosh_render(),
     )
 
 
@@ -2954,25 +3119,6 @@ def _build_effects_section():
                 dpg.add_slider_float(label="Head-switch шум", tag="am_vhs_head_switch",
                                      default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
 
-            # ── CRT ──
-            with dpg.group(tag="fx_side_crt", show=False):
-                dpg.add_separator()
-                dpg.add_text("CRT scanlines", color=_GL_MAGENTA)
-                with dpg.group(horizontal=True):
-                    dpg.add_slider_float(label="Скан-линии", tag="am_crt_scanline",
-                                         default_value=0.5, min_value=0.0, max_value=1.0, width=170, format="%.2f")
-                    dpg.add_spacer(width=6)
-                    dpg.add_slider_float(label="Маска", tag="am_crt_mask",
-                                         default_value=0.3, min_value=0.0, max_value=1.0, width=170, format="%.2f")
-                with dpg.group(horizontal=True):
-                    dpg.add_slider_float(label="Кривизна", tag="am_crt_curvature",
-                                         default_value=0.2, min_value=0.0, max_value=1.0, width=170, format="%.2f")
-                    dpg.add_spacer(width=6)
-                    dpg.add_slider_float(label="Виньетка", tag="am_crt_vignette",
-                                         default_value=0.4, min_value=0.0, max_value=1.0, width=170, format="%.2f")
-                dpg.add_slider_float(label="Послесвечение", tag="am_crt_persistence",
-                                     default_value=0.0, min_value=0.0, max_value=0.95, width=170, format="%.2f")
-
             # ── Wave Warp ──
             with dpg.group(tag="fx_side_wave_warp", show=False):
                 dpg.add_separator()
@@ -3762,6 +3908,96 @@ def _build_blob_section():
                           label="Формат", width=200)
 
 
+# ─── Datamosh (bitstream / Avidemux-style) ──────────────────────────────────
+
+def _build_datamosh_section():
+    with dpg.collapsing_header(label="  Датамош (битстрим)",
+                               default_open=False):
+        dpg.add_text(
+            "Настоящий кодек-датамош как в Avidemux: пост-обработка на "
+            "ЭКСПОРТЕ (в превью не видно). Отдельно от GPU-эффекта 'datamosh'.",
+            color=_GL_DIM, wrap=-1,
+        )
+        dpg.add_spacer(height=4)
+        dpg.add_checkbox(label="Включить датамош на рендере",
+                         tag="dmr_enabled", default_value=False)
+        dpg.add_spacer(height=4)
+        dpg.add_slider_float(label="Детализация (мельче блоки)", tag="dmr_fine_scale",
+                             default_value=2.0, min_value=1.0, max_value=4.0,
+                             format="%.1f×", width=260)
+        dpg.add_text(
+            "Кодирует промежуточный поток в большем разрешении: макроблоки "
+            "16×16 становятся мельче → расплыв тоньше. 1.0× = выкл (быстрее), "
+            "2.0× = вдвое мельче (×4 пикселей, медленнее).",
+            color=_GL_DIM, wrap=-1,
+        )
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_checkbox(label="Bloom (удалять I-кадры → расплыв)",
+                             tag="dmr_bloom", default_value=True)
+            dpg.add_spacer(width=12)
+            dpg.add_checkbox(label="Smear (дублить P-кадры → смаз)",
+                             tag="dmr_smear", default_value=False)
+        dpg.add_spacer(height=6)
+        dpg.add_text("BLOOM", color=_GL_DIM)
+        with dpg.group(horizontal=True):
+            dpg.add_slider_float(label="Интервал I-кадров, сек", tag="dmr_keyframe_sec",
+                                 default_value=2.0, min_value=0.25, max_value=10.0,
+                                 format="%.2f", width=200)
+            dpg.add_spacer(width=10)
+            dpg.add_slider_float(label="Доля удаляемых I", tag="dmr_bloom_chance",
+                                 default_value=1.0, min_value=0.0, max_value=1.0,
+                                 format="%.2f", width=180)
+        dpg.add_text(
+            "Меньше интервал = чаще ключевые кадры = больше точек расплыва. "
+            "Склейки клипов тоже дают I-кадр → клипы 'перетекают' друг в друга.",
+            color=_GL_DIM, wrap=-1,
+        )
+        dpg.add_spacer(height=6)
+        dpg.add_text("SMEAR", color=_GL_DIM)
+        with dpg.group(horizontal=True):
+            dpg.add_slider_int(label="Повторов P-кадра", tag="dmr_smear_repeat",
+                               default_value=1, min_value=1, max_value=12, width=200)
+            dpg.add_spacer(width=10)
+            dpg.add_slider_float(label="Доля дублируемых P", tag="dmr_smear_chance",
+                                 default_value=0.25, min_value=0.0, max_value=1.0,
+                                 format="%.2f", width=180)
+
+
+def _collect_datamosh_render() -> DatamoshRenderSettings:
+    def _g(t, d):
+        return dpg.get_value(t) if dpg.does_item_exist(t) else d
+    return DatamoshRenderSettings(
+        enabled      = bool(_g("dmr_enabled", False)),
+        bloom        = bool(_g("dmr_bloom", True)),
+        smear        = bool(_g("dmr_smear", False)),
+        keyframe_sec = float(_g("dmr_keyframe_sec", 2.0)),
+        bloom_chance = float(_g("dmr_bloom_chance", 1.0)),
+        smear_repeat = int(_g("dmr_smear_repeat", 1)),
+        smear_chance = float(_g("dmr_smear_chance", 0.25)),
+        fine_scale   = float(_g("dmr_fine_scale", 2.0)),
+    )
+
+
+def _apply_datamosh_render(d: dict) -> None:
+    """Push saved datamosh_render fields back into their widgets."""
+    if not isinstance(d, dict):
+        return
+    mapping = {
+        "dmr_enabled":      ("enabled",      False),
+        "dmr_bloom":        ("bloom",        True),
+        "dmr_smear":        ("smear",        False),
+        "dmr_keyframe_sec": ("keyframe_sec", 2.0),
+        "dmr_bloom_chance": ("bloom_chance", 1.0),
+        "dmr_smear_repeat": ("smear_repeat", 1),
+        "dmr_smear_chance": ("smear_chance", 0.25),
+        "dmr_fine_scale":   ("fine_scale",   2.0),
+    }
+    for tag, (key, default) in mapping.items():
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, d.get(key, default))
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ModMatrix GUI (Slice 2)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4386,6 +4622,48 @@ def _build_strip_themes():
     _FOOTER_THEME = tf
 
 
+def _toggle_secret_input(_s=None, _a=None):
+    """Header title clicked → reveal/hide the hidden command input."""
+    if not dpg.does_item_exist("gl_secret_input"):
+        return
+    vis = dpg.get_item_configuration("gl_secret_input").get("show", False)
+    dpg.configure_item("gl_secret_input", show=not vis)
+    if not vis:
+        dpg.focus_item("gl_secret_input")
+
+
+def _on_secret_enter(_s=None, _a=None):
+    """Typed command in the hidden input. '[shi o kiku]' opens the logo menu."""
+    val = (dpg.get_value("gl_secret_input") or "").strip().lower()
+    dpg.set_value("gl_secret_input", "")
+    if val == "[shi o kiku]":
+        dpg.configure_item("gl_secret_input", show=False)
+        if dpg.does_item_exist("logo_menu_win"):
+            dpg.configure_item("logo_menu_win", show=True)
+            dpg.set_value("logo_flash_chk", bool(_LOGO_FLASH))
+
+
+def _on_logo_flash_toggle(_s=None, app_data=None):
+    """Checkbox in the secret menu → flip the module-level flash state."""
+    global _LOGO_FLASH
+    _LOGO_FLASH = bool(app_data)
+
+
+def _build_logo_menu():
+    """Hidden popup that unlocks via the '[shi o kiku]' command."""
+    with dpg.window(label="// shi o kiku //", tag="logo_menu_win",
+                    show=False, modal=False, no_collapse=True,
+                    width=320, height=140, pos=(120, 80)):
+        dpg.add_text("Секретное меню разблокировано.")
+        dpg.add_separator()
+        dpg.add_checkbox(label="ASCII-вспышка логотипа на первом бите",
+                         tag="logo_flash_chk", default_value=bool(_LOGO_FLASH),
+                         callback=_on_logo_flash_toggle)
+        dpg.add_spacer(height=6)
+        dpg.add_button(label="Закрыть",
+                       callback=lambda: dpg.configure_item("logo_menu_win", show=False))
+
+
 def _build_header_strip():
     """GL1TCH-style magenta title bar across the top of the main window."""
     with dpg.child_window(height=32, border=False, no_scrollbar=True,
@@ -4396,9 +4674,17 @@ def _build_header_strip():
             dpg.add_text("SHI O KIKU // AUTOMATCH", tag="gl_header_title")
             dpg.add_spacer(width=10)
             dpg.add_text("v0.66", tag="gl_header_version")
+            dpg.add_spacer(width=10)
+            dpg.add_input_text(tag="gl_secret_input", show=False, width=160,
+                               hint="...", on_enter=True,
+                               callback=_on_secret_enter)
             dpg.add_spacer(width=-1)
     if _HEADER_THEME:
         dpg.bind_item_theme("gl_header", _HEADER_THEME)
+    # make the title clickable → toggles the hidden command input
+    with dpg.item_handler_registry(tag="gl_title_handlers"):
+        dpg.add_item_clicked_handler(callback=_toggle_secret_input)
+    dpg.bind_item_handler_registry("gl_header_title", "gl_title_handlers")
 
 
 def _build_footer_strip():
@@ -4553,6 +4839,8 @@ def main() -> int:
         dpg.add_spacer(height=2)
         _build_blob_section()
         dpg.add_spacer(height=2)
+        _build_datamosh_section()
+        dpg.add_spacer(height=2)
         _build_mod_matrix_section()
 
         # ── action bar ──────────────────────────────────────────────────────
@@ -4563,6 +4851,12 @@ def main() -> int:
         if _TEX_GLITCH_BOT:
             dpg.add_image(_TEX_GLITCH_BOT, width=-1, height=10)
         _build_footer_strip()
+
+    # secret logo-flash menu (hidden until the '[shi o kiku]' command)
+    _build_logo_menu()
+    # the big ASCII-eye logo is also a click target for the easter egg
+    if dpg.does_item_exist("logo_ascii_txt") and dpg.does_item_exist("gl_title_handlers"):
+        dpg.bind_item_handler_registry("logo_ascii_txt", "gl_title_handlers")
 
     # apply initial state themes to matrix cells
     for kind in USER_EFFECTS:

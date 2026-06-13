@@ -2,7 +2,7 @@
 
 Highlights:
   - Effects with their own previous-output texture (ping-pong feedback):
-        datamosh, block_drift, glitch, crt, drip
+        datamosh, block_drift, glitch, drip
   - light_bleed is a 2-pass effect: accumulate (writes bloom-only)
     + composite (overlays bloom on the current frame).
   - datamosh reads a per-pixel motion-vector texture produced by the
@@ -48,7 +48,7 @@ QUAD_VERTS = np.array([
 
 
 # Effects that maintain a personal previous-output texture (ping-pong).
-_EFFECTS_WITH_PREV = {"datamosh", "glitch", "crt", "drip",
+_EFFECTS_WITH_PREV = {"datamosh", "glitch", "drip",
                       "mirror_flow", "motion_trails", "quad_split",
                       "fragment_layers"}
 
@@ -139,7 +139,7 @@ class RenderThread(threading.Thread):
             "vhs":         ctx.program(vertex_shader=vert, fragment_shader=_load("vhs.frag")),
             "rgb_split":   ctx.program(vertex_shader=vert, fragment_shader=_load("rgb_split.frag")),
             "glitch":      ctx.program(vertex_shader=vert, fragment_shader=_load("glitch.frag")),
-            "crt":         ctx.program(vertex_shader=vert, fragment_shader=_load("crt.frag")),
+            "crt_monitor": ctx.program(vertex_shader=vert, fragment_shader=_load("crt_monitor.frag")),
             "drip":        ctx.program(vertex_shader=vert, fragment_shader=_load("drip.frag")),
             "dither":      ctx.program(vertex_shader=vert, fragment_shader=_load("dither.frag")),
             "datamosh":    ctx.program(vertex_shader=vert, fragment_shader=_load("datamosh.frag")),
@@ -703,12 +703,14 @@ class RenderThread(threading.Thread):
             U("u_block_size",    params.glitch_block_size)
             U("u_drop_chance",   params.glitch_drop_chance)
             U("u_repeat_chance", params.glitch_repeat_chance)
-        elif kind == "crt":
-            U("u_scanline",    params.crt_scanline_strength)
-            U("u_mask",        params.crt_mask_strength)
-            U("u_curvature",   params.crt_curvature)
-            U("u_vignette",    params.crt_vignette)
-            U("u_persistence", params.crt_persistence)
+        elif kind == "crt_monitor":
+            U("u_curvature",      getattr(params, "crtm_curvature",      0.30))
+            U("u_scanline",       getattr(params, "crtm_scanline",       0.50))
+            U("u_grille",         getattr(params, "crtm_grille",         0.40))
+            U("u_vignette",       getattr(params, "crtm_vignette",       0.40))
+            U("u_bloom",          getattr(params, "crtm_bloom",          0.30))
+            U("u_aberration",     getattr(params, "crtm_aberration",     0.50))
+            U("u_aberration_mode",getattr(params, "crtm_aberration_mode",0.0))
         elif kind == "drip":
             U("u_drip",  params.drip_speed)
             U("u_decay", params.drip_decay)

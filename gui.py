@@ -47,7 +47,7 @@ EFFECT_LABELS = {
     "vhs":          "VHS",
     "rgb_split":    "RGB split",
     "glitch":       "Glitch (macroblock)",
-    "crt":          "CRT",
+    "crt_monitor":  "CRT",
     "drip":         "Drip",
     "dither":       "Dither (circuit mod.)",
 }
@@ -231,12 +231,14 @@ EFFECT_PARAMS = {
         ("Drop chance",   "glitch_drop_chance",   0.0, 1.0),
         ("Repeat chance", "glitch_repeat_chance", 0.0, 1.0),
     ],
-    "crt": [
-        ("Scanlines",    "crt_scanline_strength", 0.0, 1.0),
-        ("RGB mask",     "crt_mask_strength",     0.0, 1.0),
-        ("Curvature",    "crt_curvature",         0.0, 0.6),
-        ("Vignette",     "crt_vignette",          0.0, 1.0),
-        ("Persistence",  "crt_persistence",       0.0, 1.0),
+    "crt_monitor": [
+        ("Curvature",   "crtm_curvature",       0.0, 1.0),
+        ("Scanlines",   "crtm_scanline",        0.0, 1.0),
+        ("Grille",      "crtm_grille",          0.0, 1.0),
+        ("Vignette",    "crtm_vignette",        0.0, 1.0),
+        ("Bloom",       "crtm_bloom",           0.0, 1.0),
+        ("Aberration",  "crtm_aberration",      0.0, 1.0),
+        ("Aberr. mode", "crtm_aberration_mode", 0.0, 2.0),
     ],
     "drip": [
         ("Drip speed", "drip_speed", 0.0, 0.05),

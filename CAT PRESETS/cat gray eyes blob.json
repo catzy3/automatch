@@ -1,0 +1,558 @@
+{
+  "version": 1,
+  "paths": {
+    "audio": "E:/РАбочий Стол/dj set teppich/CAT GRAY EYES - daily life is trash.mp3",
+    "media": "E:/pinterest shit/cars",
+    "output": "C:\\Users\\divin\\Code\\analogvfx\\recordings\\automatch.mp4"
+  },
+  "settings": {
+    "duration": 15.847000122070312,
+    "fps": 60,
+    "output_w": 1280,
+    "output_h": 720,
+    "cuts_per_beat": 2.0,
+    "aspect_mode": "horizontal",
+    "beat_flash_ms": 103,
+    "audio_offset_sec": 9.569999694824219,
+    "override_bpm": 0.0,
+    "crf": 12,
+    "palette": "auto",
+    "palette_strength": 1.0,
+    "crossfade_ms": 306,
+    "transition_mode": "random",
+    "seed": 1092334360,
+    "clip_mode": "random",
+    "clip_stride": 1,
+    "clip_avoid_recent": 10,
+    "beat_remap_strength": 0.75,
+    "cam_stabilize": true,
+    "random_clip_starts": true,
+    "single_video_clips": 29,
+    "preview_scale": 0.5600000023841858,
+    "dither_params": {
+      "dither_levels": 32.0,
+      "dither_grid_size": 3.0,
+      "dither_osc_a_freq": 43.810001373291016,
+      "dither_osc_b_freq": 30.459999084472656,
+      "dither_osc_a_speed": 1.399999976158142,
+      "dither_osc_b_speed": 3.0,
+      "dither_trace_thickness": 0.0820000022649765,
+      "dither_jitter": 0.5699999928474426,
+      "dither_chromatic": 0.49000000953674316,
+      "dither_algorithm": 3.0,
+      "dither_mix_mode": 0.0,
+      "dither_color_mode": 1.0,
+      "dither_polarity": 1.0,
+      "dither_color_a_r": 0.0784313725490196,
+      "dither_color_a_g": 0.6470588235294118,
+      "dither_color_a_b": 0.6980392156862745,
+      "dither_color_b_r": 0.5490196078431373,
+      "dither_color_b_g": 1.0,
+      "dither_color_b_b": 0.4470588235294118
+    },
+    "ascii_text": "[SHI O KIKU]",
+    "ascii_params": {
+      "ascii_cell_size": 0.029999999329447746,
+      "ascii_invert": 1.0,
+      "ascii_color_source": 1.0,
+      "ascii_tint_r": 0.07683198966232001,
+      "ascii_tint_g": 0.6483813715916054,
+      "ascii_tint_b": 0.7898807899624694
+    },
+    "psort_params": {
+      "psort_algorithm": 1.0,
+      "psort_threshold": 0.0,
+      "psort_length": 0.3499999940395355,
+      "psort_color_mode": 2.0
+    },
+    "kaleido_params": {
+      "kaleido_sides": 6.0,
+      "kaleido_angle": 0.0,
+      "kaleido_spin": 0.10000000149011612,
+      "kaleido_zoom": 1.0
+    },
+    "slit_params": {
+      "slit_direction": 0.0,
+      "slit_speed": 1.0,
+      "slit_scanpos": 0.9700000286102295,
+      "slit_feedback": 0.8199999928474426,
+      "slit_threshold": 0.18000000715255737
+    },
+    "distort_params": {
+      "distort_xshift": 0.5,
+      "distort_yshift": 0.5,
+      "distort_threshold": 0.0,
+      "distort_scale": 4.0,
+      "distort_speed": 0.30000001192092896,
+      "distort_blur": 0.0,
+      "distort_grain": 0.0,
+      "distort_gamma": 1.0,
+      "distort_black": 0.0,
+      "distort_white": 1.0,
+      "distort_noise_mode": 1.0
+    },
+    "thermal_params": {
+      "thermal_gain": 1.0,
+      "thermal_gamma": 1.0,
+      "thermal_levels": 0.0,
+      "thermal_palette": 4.0
+    },
+    "cellular_params": {
+      "ca_cell": 23.0,
+      "ca_rate": 0.5,
+      "ca_seed_thr": 1.0,
+      "ca_mode": 1.0,
+      "ca_tint_r": 1.0,
+      "ca_tint_g": 1.0,
+      "ca_tint_b": 1.0
+    },
+    "elastic_grid_params": {
+      "eg_grid": 31.0,
+      "eg_strength": 0.3700000047683716,
+      "eg_speed": 0.9399999976158142,
+      "eg_jitter": 0.3499999940395355,
+      "eg_noise_mode": 1.0
+    },
+    "crt_monitor_params": {
+      "crtm_curvature": 0.009999999776482582,
+      "crtm_scanline": 0.4300000071525574,
+      "crtm_grille": 0.5099999904632568,
+      "crtm_vignette": 0.36000001430511475,
+      "crtm_bloom": 0.6200000047683716,
+      "crtm_aberration": 1.0
+    },
+    "glitch_params": {
+      "glitch_block_size": 0.30000001192092896,
+      "glitch_drop_chance": 0.30000001192092896,
+      "glitch_repeat_chance": 0.20000000298023224
+    },
+    "modulate_params": {
+      "mod_freq": 58.0,
+      "mod_amount": 1.0,
+      "mod_speed": 0.6800000071525574,
+      "mod_axis": 0.1599999964237213,
+      "mod_mode": 1.0
+    },
+    "pixelate_params": {
+      "pixelate_block": 14.0,
+      "pixelate_feedback": 0.8999999761581421,
+      "pixelate_zoom": 0.8500000238418579,
+      "pixelate_drift": 0.699999988079071,
+      "pixelate_fb_mode": 1.0
+    },
+    "extra_fx_params": {
+      "vhs_tracking_noise": 0.5,
+      "vhs_line_jitter": 0.30000001192092896,
+      "vhs_chroma_blur": 0.4000000059604645,
+      "vhs_color_loss": 0.20000000298023224,
+      "vhs_head_switch": 0.30000001192092896,
+      "wave_amp1": 0.029999999329447746,
+      "wave_freq1": 3.0,
+      "wave_speed1": 1.0,
+      "wave_chromatic": 0.0,
+      "wave_angle": 0.0,
+      "wave_polar": 0.0,
+      "datamosh_strength": 0.8500000238418579,
+      "datamosh_freeze": 0.44999998807907104,
+      "datamosh_period": 3.5,
+      "datamosh_chaos": 0.4000000059604645,
+      "datamosh_algorithm": 1.0,
+      "trails_decay": 0.8500000238418579,
+      "trails_threshold": 0.15000000596046448,
+      "trails_chaos": 0.30000001192092896,
+      "trails_secondary": 0.0,
+      "rgb_shift_amount": 0.009999999776482582,
+      "rgb_wave_frequency": 0.0,
+      "duotone_strength": 0.800000011920929,
+      "duotone_midpoint": 0.5,
+      "accent_r": 0.6431372549019608,
+      "accent_g": 1.0,
+      "accent_b": 0.35294117647058826,
+      "luma_lift": 0.0,
+      "luma_gain": 1.0,
+      "luma_gamma": 1.0,
+      "luma_invert": 0.0,
+      "edges_threshold": 0.10000000149011612,
+      "edges_thickness": 0.30000001192092896,
+      "pixel_swap_radius": 0.30000001192092896,
+      "pixel_swap_threshold": 0.5,
+      "pixel_swap_chaos": 0.30000001192092896,
+      "ff_dropout_density": 0.0,
+      "ff_dropout_strength": 0.0,
+      "ff_warp_amount": 0.02199999988079071,
+      "ff_ghost_opacity": 0.4399999976158142,
+      "ff_chroma_bleed": 5.0,
+      "ff_luma_crush": 0.8899999856948853,
+      "ca_offset": 0.008999999612569809,
+      "ca_radial": 0.800000011920929,
+      "ca_angle": 0.0,
+      "ca_spin": 0.0,
+      "post_levels": 6.0,
+      "post_dither_mix": 0.30000001192092896,
+      "post_color_mode": 0.0,
+      "swirl_strength": 3.0,
+      "swirl_radius": 0.5,
+      "swirl_cx": 0.5,
+      "swirl_cy": 0.5,
+      "swirl_animate": 0.0,
+      "ir_hue_range": 0.5,
+      "ir_speed": 0.4000000059604645,
+      "ir_metallic": 0.6000000238418579,
+      "ir_scale": 1.5,
+      "ir_opacity": 0.699999988079071,
+      "mb_length": 0.006000000052154064,
+      "mb_angle": 0.0,
+      "mb_radial": 0.0,
+      "mb_samples": 6.0,
+      "ag_block_size": 0.0,
+      "ag_shift_amount": 0.08900000154972076,
+      "ag_chance": 0.27000001072883606,
+      "ag_color_shift": 0.7300000190734863,
+      "ag_speed": 3.700000047683716
+    },
+    "effect_overrides": {
+      "luma_key": {
+        "state": "off",
+        "mix": 0.7900000214576721,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "duotone": {
+        "state": "off",
+        "mix": 0.5,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "motion_trails": {
+        "state": "off",
+        "mix": 0.38999998569488525,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "wave_warp": {
+        "state": "off",
+        "mix": 0.4399999976158142,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "pixel_sort": {
+        "state": "off",
+        "mix": 0.6600000262260437,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "datamosh": {
+        "state": "off",
+        "mix": 0.8199999928474426,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "vhs": {
+        "state": "off",
+        "mix": 0.5899999737739563,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "ascii_mosaic": {
+        "state": "random",
+        "mix": 1.0,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "dither": {
+        "state": "on",
+        "mix": 0.5400000214576721,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "rgb_split": {
+        "state": "off",
+        "mix": 0.41999998688697815,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "edges": {
+        "state": "off",
+        "mix": 0.5099999904632568,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "pixel_swap": {
+        "state": "off",
+        "mix": 0.5099999904632568,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "kaleidoscope": {
+        "state": "off",
+        "mix": 0.5199999809265137,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "slit_scan": {
+        "state": "off",
+        "mix": 0.6899999976158142,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "distort": {
+        "state": "off",
+        "mix": 0.38999998569488525,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "thermal": {
+        "state": "off",
+        "mix": 0.800000011920929,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "cellular": {
+        "state": "off",
+        "mix": 0.5299999713897705,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "elastic_grid": {
+        "state": "off",
+        "mix": 0.41999998688697815,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "crt_monitor": {
+        "state": "on",
+        "mix": 0.5400000214576721,
+        "random_mix": true,
+        "blend": 4.0
+      },
+      "found_footage": {
+        "state": "off",
+        "mix": 0.49000000953674316,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "chromatic_aberration": {
+        "state": "on",
+        "mix": 0.4000000059604645,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "color_posterize": {
+        "state": "off",
+        "mix": 0.6600000262260437,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "swirl": {
+        "state": "off",
+        "mix": 0.6200000047683716,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "iridescent_foil": {
+        "state": "off",
+        "mix": 0.5899999737739563,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "motion_blur": {
+        "state": "random",
+        "mix": 0.7400000095367432,
+        "random_mix": true,
+        "blend": 0.0
+      },
+      "advanced_glitch": {
+        "state": "off",
+        "mix": 0.6700000166893005,
+        "random_mix": true,
+        "blend": 0.0
+      }
+    },
+    "text_cards": {
+      "enabled": false,
+      "probability": 0.15000000596046448,
+      "duration": 0.7400000095367432,
+      "vibe": "abstract",
+      "lines": [],
+      "color": [
+        255,
+        255,
+        255
+      ],
+      "bg_color": [
+        0,
+        0,
+        0
+      ],
+      "bg_alpha": 0.0,
+      "font_scale": 1.0,
+      "align": "center",
+      "font_path": "C:\\WINDOWS\\Fonts\\GOUDOS.TTF"
+    },
+    "blob_track": {
+      "enabled": true,
+      "tracker_mode": "csrt",
+      "hue_center": 0,
+      "hue_range": 31,
+      "min_val": 39,
+      "min_sat": 73,
+      "min_size": 552,
+      "max_blobs": 4,
+      "show_overlay": true,
+      "bracket_color": [
+        255,
+        255,
+        255
+      ],
+      "bracket_thickness": 1,
+      "show_labels": true,
+      "show_centroid": true,
+      "show_data_line": true,
+      "zoom_to_blob": true,
+      "bracket_style": 1,
+      "show_crosshair": false,
+      "show_leader": false,
+      "show_trails": true,
+      "trail_length": 5,
+      "show_network": true,
+      "label_prefix": "@catgrayeyes",
+      "show_extra_data": true,
+      "show_timestamp": true,
+      "timestamp_format": 0
+    },
+    "mod_config": {
+      "lfos": [
+        {
+          "name": "lfo1",
+          "wave": "sine",
+          "rate": 0.25,
+          "beat_sync": true,
+          "phase": 0.0,
+          "reset_on_downbeat": true
+        },
+        {
+          "name": "lfo2",
+          "wave": "sine",
+          "rate": 1.0,
+          "beat_sync": false,
+          "phase": 0.0,
+          "reset_on_downbeat": false
+        },
+        {
+          "name": "lfo3",
+          "wave": "sine",
+          "rate": 17.889999389648438,
+          "beat_sync": true,
+          "phase": 0.0,
+          "reset_on_downbeat": false
+        },
+        {
+          "name": "lfo4",
+          "wave": "sine",
+          "rate": 1.0,
+          "beat_sync": false,
+          "phase": 0.0,
+          "reset_on_downbeat": false
+        }
+      ],
+      "routes": [
+        {
+          "target": "effect_mix_vhs",
+          "source": "downbeat",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        },
+        {
+          "target": "effect_mix_rgb_split",
+          "source": "downbeat",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        },
+        {
+          "target": "effect_mix_wave_warp",
+          "source": "downbeat",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        },
+        {
+          "target": "effect_mix_pixel_sort",
+          "source": "lfo3",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        },
+        {
+          "target": "effect_mix_datamosh",
+          "source": "downbeat",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        },
+        {
+          "target": "effect_mix_distort",
+          "source": "downbeat",
+          "mode": "absolute",
+          "depth": 1.0,
+          "curve": 1.0,
+          "lo": 0.30000001192092896,
+          "hi": 0.8500000238418579,
+          "invert": false,
+          "combine": "add"
+        }
+      ]
+    },
+    "effect_chain": [],
+    "chain_enabled": false
+  },
+  "fx_state": {
+    "luma_key": "off",
+    "duotone": "off",
+    "motion_trails": "off",
+    "wave_warp": "off",
+    "pixel_sort": "off",
+    "datamosh": "off",
+    "vhs": "off",
+    "ascii_mosaic": "random",
+    "dither": "on",
+    "rgb_split": "off",
+    "edges": "off",
+    "pixel_swap": "off",
+    "kaleidoscope": "off",
+    "slit_scan": "off",
+    "distort": "off",
+    "thermal": "off",
+    "cellular": "off",
+    "elastic_grid": "off",
+    "crt_monitor": "on",
+    "found_footage": "off",
+    "chromatic_aberration": "on",
+    "color_posterize": "off",
+    "swirl": "off",
+    "iridescent_foil": "off",
+    "motion_blur": "random",
+    "advanced_glitch": "off"
+  }
+}

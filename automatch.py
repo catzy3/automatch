@@ -141,6 +141,29 @@ class BlobTrackSettings:
     timestamp_format: int   = 0      # 0=date+time 1=time 2=date 3=frame counter
 
 
+@dataclass
+class DatamoshRenderSettings:
+    """Real codec-level datamosh applied as an EXPORT post-process (the
+    Avidemux-style bitstream technique), distinct from the live GPU `datamosh`
+    effect. See datamosh_bitstream.py. Export-only — invisible in preview.
+
+      bloom  — remove I-frames so cuts melt into each other.
+      smear  — duplicate P-frames so motion stutters/freezes.
+    """
+    enabled:      bool  = False
+    bloom:        bool  = True    # drop I-frames → melt
+    smear:        bool  = False   # duplicate P-frames → stutter
+    keyframe_sec: float = 2.0     # forced I-frame spacing (lower = more melts)
+    bloom_chance: float = 1.0     # fraction of I-frames removed (after the 1st)
+    smear_repeat: int   = 1       # extra copies per chosen P-frame (1 = smooth)
+    smear_chance: float = 0.25    # fraction of P-frames duplicated
+    # Finer blocks: encode the intermediate at this resolution multiplier so
+    # the codec's 16×16 macroblocks cover a smaller part of the frame → the
+    # melt looks finer / less blocky. 1.0 = off (fastest); 2.0 = ~half-size
+    # blocks (4× the intermediate pixels). Scaled back to output on the way out.
+    fine_scale:   float = 2.0
+
+
 # ---------------------------------------------------------------- settings ----
 
 @dataclass
@@ -268,6 +291,10 @@ class AutoEditSettings:
     modulate_params: dict = field(default_factory=dict)
     # Pixelate feedback (pixelate_block/feedback/zoom/drift/fb_mode).
     pixelate_params: dict = field(default_factory=dict)
+    # Flat {Params_field: float} for the side panels wired via the generic
+    # _EXTRA_FX_WIDGETS registry (vhs, crt, wave_warp, datamosh, motion_trails,
+    # rgb_split, duotone, luma_key, edges, pixel_swap + all 7 new effects).
+    extra_fx_params: dict = field(default_factory=dict)
     # Per-frame "human" modulation matrix (LFOs + audio envelopes → params).
     # JSON-serialisable {"lfos": [...], "routes": [...]}; see automatch_mod.py.
     # Empty dict = inert (default render unchanged).
@@ -294,6 +321,13 @@ class AutoEditSettings:
     # Brief text cards shown at the start of some cuts.
     text_cards:  TextCardSettings  = field(default_factory=TextCardSettings)
     blob_track:  BlobTrackSettings = field(default_factory=BlobTrackSettings)
+    # Easter egg: flash the "shi o kiku" ASCII-art logo on the first beat,
+    # over both preview and final render. Toggled from the GUI by clicking the
+    # header title and typing "[shi o kiku]". Default on.
+    logo_flash:  bool = True
+    # Real codec-level datamosh post-process (Avidemux-style). Export-only;
+    # the live GPU `datamosh` effect is unrelated and stays as-is.
+    datamosh_render: DatamoshRenderSettings = field(default_factory=DatamoshRenderSettings)
 
 
 # ─── Aspect-ratio presets ─────────────────────────────────────────────────
@@ -441,7 +475,7 @@ def _apply_aspect_crop(frame: "np.ndarray", aspect_w: float, aspect_h: float,
 # internal "final" pass).
 USER_EFFECTS: tuple = (
     "luma_key", "duotone", "motion_trails",
-    "wave_warp", "pixel_sort", "datamosh", "vhs", "ascii_mosaic", "crt",
+    "wave_warp", "pixel_sort", "datamosh", "vhs", "ascii_mosaic",
     "dither", "rgb_split", "edges", "pixel_swap", "kaleidoscope", "slit_scan",
     "distort", "thermal", "cellular", "elastic_grid", "crt_monitor",
     "found_footage", "chromatic_aberration", "color_posterize", "swirl",
@@ -462,7 +496,6 @@ EFFECT_LABELS_RU: dict = {
     "datamosh":     "Datamosh",
     "vhs":          "VHS",
     "ascii_mosaic": "ASCII мозаика",
-    "crt":          "CRT scanlines",
     "dither":       "Dither (circuit mod.)",
     "rgb_split":    "RGB split (хром. аберрация)",
     "edges":        "Контуры (edges)",
@@ -473,7 +506,7 @@ EFFECT_LABELS_RU: dict = {
     "thermal":      "Thermal (тепловизор)",
     "cellular":     "Cellular automata",
     "elastic_grid": "Elastic grid (mesh warp)",
-    "crt_monitor":  "CRT монитор (v2)",
+    "crt_monitor":  "CRT",
     "glitch":                "Glitch (блочный)",
     "modulate":              "Modulation (сигнал)",
     "pixelate":              "Pixelate (фидбек)",
@@ -1601,6 +1634,110 @@ def _blob_zoom_frame(frame: np.ndarray,
                           borderMode=cv2.BORDER_REPLICATE)
 
 
+# ------------------------------------------------------------- logo flash ----
+#
+# Easter egg: on the first beat we flash the "shi o kiku" ASCII-art logo over
+# the frame (preview + final render). _LOGO_LAYER_CACHE holds the pre-rendered
+# white-on-transparent logo bitmap keyed by (w, h) so we only rasterise once.
+
+_LOGO_FLASH_WINDOW = 0.55   # seconds the flash is visible from the first beat
+_LOGO_LAYER_CACHE: dict = {}
+
+
+def _logo_flash_alpha(t: float, beats, settings) -> float:
+    """Fade alpha (0..1) for the first-beat logo flash at time ``t``.
+
+    Returns 0.0 when the flash is disabled, there are no beats, or ``t`` is
+    outside the flash window. Inside the window the alpha rises fast and decays
+    (quick attack, slower release) so it reads as a single percussive stamp.
+    """
+    if not getattr(settings, "logo_flash", False):
+        return 0.0
+    if beats is None or len(beats) == 0:
+        return 0.0
+    b0 = float(beats[0])
+    dt = t - b0
+    if dt < 0.0 or dt > _LOGO_FLASH_WINDOW:
+        return 0.0
+    x = dt / _LOGO_FLASH_WINDOW            # 0..1 across the window
+    # attack over first 20%, release over the rest
+    if x < 0.2:
+        return x / 0.2
+    return max(0.0, 1.0 - (x - 0.2) / 0.8)
+
+
+def _logo_flash_layer(w: int, h: int):
+    """Return a cached (mask, rgb) pair for the ASCII logo sized to (w, h).
+
+    mask: float32 (h, w) in 0..1 — per-pixel logo coverage.
+    rgb:  uint8  (h, w, 3) BGR — the logo colour (white).
+    Returns None if the logo art / PIL is unavailable.
+    """
+    key = (w, h)
+    cached = _LOGO_LAYER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        try:
+            from logo_ascii import ASCII_LOGO
+        except Exception:
+            ASCII_LOGO = "shi o kiku"
+
+        lines = ASCII_LOGO.split("\n")
+        n_rows = max(1, len(lines))
+        n_cols = max(1, max(len(ln) for ln in lines))
+
+        # pick a monospace font size so the art fits ~82% of the frame
+        mono_candidates = [r"C:\Windows\Fonts\consola.ttf",
+                           r"C:\Windows\Fonts\cour.ttf",
+                           r"C:\Windows\Fonts\lucon.ttf"]
+        font_path = next((p for p in mono_candidates if Path(p).exists()), "")
+        # estimate: monospace char advance ~0.6 of font size, line height ~1.0
+        fit_w = (0.82 * w) / (n_cols * 0.60)
+        fit_h = (0.82 * h) / (n_rows * 1.05)
+        fsize = max(4, int(min(fit_w, fit_h)))
+        if font_path:
+            font = ImageFont.truetype(font_path, fsize)
+        else:
+            font = ImageFont.load_default()
+
+        # measure the block and centre it
+        tmp = Image.new("L", (8, 8), 0)
+        d0  = ImageDraw.Draw(tmp)
+        bbox = d0.multiline_textbbox((0, 0), ASCII_LOGO, font=font, spacing=0)
+        blk_w = bbox[2] - bbox[0]
+        blk_h = bbox[3] - bbox[1]
+        ox = (w - blk_w) // 2 - bbox[0]
+        oy = (h - blk_h) // 2 - bbox[1]
+
+        mask_img = Image.new("L", (w, h), 0)
+        dm = ImageDraw.Draw(mask_img)
+        dm.multiline_text((ox, oy), ASCII_LOGO, font=font, fill=255, spacing=0)
+
+        mask = (np.asarray(mask_img, dtype=np.float32) / 255.0)
+        rgb  = np.full((h, w, 3), 255, dtype=np.uint8)   # white, BGR-agnostic
+        _LOGO_LAYER_CACHE[key] = (mask, rgb)
+        return _LOGO_LAYER_CACHE[key]
+    except Exception:
+        _LOGO_LAYER_CACHE[key] = None
+        return None
+
+
+def _overlay_ascii_logo(frame: np.ndarray, alpha: float) -> np.ndarray:
+    """Alpha-blend the cached ASCII logo onto a BGR frame; returns BGR frame."""
+    if alpha <= 0.0:
+        return frame
+    h, w = frame.shape[:2]
+    layer = _logo_flash_layer(w, h)
+    if layer is None:
+        return frame
+    mask, rgb = layer
+    a = (mask * float(np.clip(alpha, 0.0, 1.0)))[:, :, None]   # (h, w, 1)
+    out = frame.astype(np.float32) * (1.0 - a) + rgb.astype(np.float32) * a
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 # ---------------------------------------------------------------- text cards ----
 
 # Cache rendered text cards (solid-background variant only — overlay mode
@@ -2117,7 +2254,7 @@ class OffscreenRenderer:
         EFFECT_SHADERS = [
             "luma_key", "duotone", "dual_tone", "heavy_grain",
             "motion_trails", "wave_warp", "pixel_sort",
-            "datamosh", "vhs", "ascii_mosaic", "crt",
+            "datamosh", "vhs", "ascii_mosaic",
             "dither",
             "rgb_split", "edges", "pixel_swap",
             "kaleidoscope", "slit_scan", "distort",
@@ -2161,6 +2298,33 @@ class OffscreenRenderer:
         else:
             self.vao_warp = None
         self.prog_uniforms = {n: set(p) for n, p in self.progs.items()}
+
+        # ── logo-flash overlay (easter egg) ──────────────────────────────
+        # A simple alpha-blended textured quad drawn ON TOP of the finished
+        # frame so the effect chain can't eat it. Lazily-built RGBA texture.
+        self.logo_tex = None
+        self.logo_tex_size = None
+        try:
+            self.prog_logo = self.ctx.program(
+                vertex_shader=vert,
+                fragment_shader="""
+                    #version 330
+                    uniform sampler2D u_logo;
+                    uniform float u_alpha;
+                    in  vec2 v_uv;
+                    out vec4 fragColor;
+                    void main() {
+                        vec4 c = texture(u_logo, v_uv);
+                        fragColor = vec4(c.rgb, c.a * u_alpha);
+                    }
+                """,
+            )
+            self.vao_logo = self.ctx.vertex_array(
+                self.prog_logo, [(self.vbo, "2f 2f", "in_pos", "in_uv")])
+        except Exception as e:
+            print(f"[automatch] logo overlay shader failed: {e}")
+            self.prog_logo = None
+            self.vao_logo = None
 
         # FBO ping-pong
         def fbo():
@@ -2293,6 +2457,33 @@ class OffscreenRenderer:
         rgb = cv2.flip(rgb, 0)
         tex.write(np.ascontiguousarray(rgb))
 
+    def _ensure_logo_tex(self):
+        """Lazily build the RGBA logo texture sized to the render target.
+
+        RGB = white logo, A = ASCII coverage mask. Uploaded vertically flipped
+        to match the GL bottom-up convention (same as _upload_bgr) so it lands
+        upright on screen. Returns the texture or None if unavailable.
+        """
+        if self.prog_logo is None:
+            return None
+        if self.logo_tex is not None and self.logo_tex_size == (self.w, self.h):
+            return self.logo_tex
+        layer = _logo_flash_layer(self.w, self.h)
+        if layer is None:
+            return None
+        mask, rgb = layer                       # mask (h,w) 0..1, rgb (h,w,3) uint8
+        a = (np.clip(mask, 0.0, 1.0) * 255.0).astype(np.uint8)
+        rgba = np.dstack([rgb, a])              # (h, w, 4) uint8 RGBA
+        rgba = np.flip(rgba, axis=0)            # GL bottom-up
+        if self.logo_tex is not None:
+            try: self.logo_tex.release()
+            except Exception: pass
+        self.logo_tex = self.ctx.texture((self.w, self.h), 4,
+                                         np.ascontiguousarray(rgba).tobytes())
+        self.logo_tex.filter = (moderngl.LINEAR, moderngl.LINEAR)
+        self.logo_tex_size = (self.w, self.h)
+        return self.logo_tex
+
     def _mat3_bytes(self, M: Optional[np.ndarray]) -> bytes:
         """Convert a 3×3 float64 pixel-UV warp matrix to GLSL mat3 bytes
         (column-major float32).  None → identity."""
@@ -2343,7 +2534,8 @@ class OffscreenRenderer:
                warp_prev: Optional[np.ndarray] = None,
                fade_in:   float = 1.0,
                present_screen_size: Optional[tuple] = None,
-               chaos_bbox: Optional[tuple] = None):
+               chaos_bbox: Optional[tuple] = None,
+               logo_alpha: float = 0.0):
         """Run the pipeline on one source frame.
 
         GPU warp+crossfade path
@@ -2417,8 +2609,6 @@ class OffscreenRenderer:
             dst[1].use()
             self.ctx.clear()
             src[0].use(0)
-            p = self.progs[kind]
-            members = self.prog_uniforms[kind]
             # bind extras
             if kind == "motion_trails":
                 self._U(kind, "u_current", 0)
@@ -2462,14 +2652,6 @@ class OffscreenRenderer:
                 if self.blue_noise_tex is not None:
                     self.blue_noise_tex.use(1)
                     self._U(kind, "u_blue_noise", 1)
-            elif kind == "crt":
-                # CRT shader expects u_prev for phosphor persistence; since we
-                # force persistence=0 there's no visible difference if we bind
-                # the current src as u_prev (saves us from carrying a real
-                # ping-pong for an unused feature).
-                self._U(kind, "u_tex", 0)
-                src[0].use(1)
-                self._U(kind, "u_prev", 1)
             else:
                 self._U(kind, "u_tex", 0)
             # generic uniforms
@@ -2541,6 +2723,18 @@ class OffscreenRenderer:
                 self._U("final", "u_use_mask", 0)
                 self._U("final", "u_mask_bbox", (0.0, 0.0, 1.0, 1.0))
             self.vaos["final"].render(moderngl.TRIANGLE_STRIP)
+            # ── logo flash: alpha-blend on top of the finished screen ──
+            if logo_alpha > 0.0 and self.prog_logo is not None:
+                ltex = self._ensure_logo_tex()
+                if ltex is not None:
+                    self.ctx.enable(moderngl.BLEND)
+                    self.ctx.blend_func = (moderngl.SRC_ALPHA,
+                                           moderngl.ONE_MINUS_SRC_ALPHA)
+                    ltex.use(0)
+                    self.prog_logo["u_logo"] = 0
+                    self.prog_logo["u_alpha"] = float(min(1.0, max(0.0, logo_alpha)))
+                    self.vao_logo.render(moderngl.TRIANGLE_STRIP)
+                    self.ctx.disable(moderngl.BLEND)
             return None
 
         # readback (export path)
@@ -2560,7 +2754,11 @@ class OffscreenRenderer:
             if iy1 < H:           arr[iy1:, :] = 0
             if ix0 > 0:           arr[iy0:iy1, :ix0] = 0
             if ix1 < W:           arr[iy0:iy1, ix1:] = 0
-        return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        out_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        # ── logo flash: composite on top of the finished frame (CPU) ──
+        if logo_alpha > 0.0:
+            out_bgr = _overlay_ascii_logo(out_bgr, logo_alpha)
+        return out_bgr
 
     def _set_effect_params(self, kind, params):
         U = lambda k, v: self._U(kind, k, v)
@@ -2636,12 +2834,6 @@ class OffscreenRenderer:
             U("u_chroma_blur",    params.vhs_chroma_blur)
             U("u_color_loss",     params.vhs_color_loss)
             U("u_head_switch",    params.vhs_head_switch)
-        elif kind == "crt":
-            U("u_scanline",    params.crt_scanline_strength)
-            U("u_mask",        params.crt_mask_strength)
-            U("u_curvature",   params.crt_curvature)
-            U("u_vignette",    params.crt_vignette)
-            U("u_persistence", params.crt_persistence)
         elif kind == "ascii_mosaic":
             U("u_cell_size",     params.ascii_cell_size)
             U("u_invert",        params.ascii_invert)
@@ -2747,6 +2939,7 @@ class OffscreenRenderer:
             U("u_feedback", getattr(params, "pixelate_feedback", 0.90))
             U("u_zoom",     getattr(params, "pixelate_zoom",     0.55))
             U("u_drift",    getattr(params, "pixelate_drift",    0.30))
+            U("u_fb_mode",  getattr(params, "pixelate_fb_mode",  0.0))
         elif kind == "found_footage":
             U("u_dropout_density",  getattr(params, "ff_dropout_density",  0.4))
             U("u_dropout_strength", getattr(params, "ff_dropout_strength", 0.7))
@@ -2776,7 +2969,7 @@ class OffscreenRenderer:
             U("u_scale",     getattr(params, "ir_scale",     1.5))
             U("u_opacity",   getattr(params, "ir_opacity",   0.7))
         elif kind == "motion_blur":
-            U("u_samples",  getattr(params, "mb_samples",  8.0))
+            U("u_samples",  int(getattr(params, "mb_samples",  8.0)))  # u_samples is `uniform int`
             U("u_length",   getattr(params, "mb_length",   0.012))
             U("u_angle",    getattr(params, "mb_angle",    0.0))
             U("u_radial",   getattr(params, "mb_radial",   0.0))
@@ -2788,7 +2981,6 @@ class OffscreenRenderer:
             U("u_chance",       getattr(params, "ag_chance",       0.4))
             U("u_color_shift",  getattr(params, "ag_color_shift",  0.4))
             U("u_speed",        getattr(params, "ag_speed",        2.0))
-            U("u_fb_mode",  getattr(params, "pixelate_fb_mode",  0.0))
 
 
 # ---------------------------------------------------------------- main flow ----
@@ -3143,7 +3335,7 @@ def _enable_beat_intensive_preset(state: SharedState, seed: int,
     "off"    — force disabled
     "random" — 50/50 per cut; mix follows same rule
     """
-    base_on = {"luma_key", "heavy_grain", "motion_trails", "crt"}
+    base_on = {"luma_key", "heavy_grain", "motion_trails", "crt_monitor"}
     accent_probs = {
         "datamosh":    0.65,
         "wave_warp":   0.18,
@@ -3164,13 +3356,14 @@ def _enable_beat_intensive_preset(state: SharedState, seed: int,
             state.update_effect(i, enabled=False)
     smart_random(state, seed=seed ^ 0xA53C7)
 
-    # Non-negotiable stamp: flat CRT + saturation cap.
-    state.update_param("crt_curvature", 0.0)
-    state.update_param("crt_scanline_strength", 0.35)
-    state.update_param("crt_mask_strength",     0.15)
-    state.update_param("crt_vignette",          0.10)
-    state.update_param("crt_persistence",       0.0)
-    state.update_param("saturation",            0.60)
+    # Non-negotiable stamp: flat CRT monitor + saturation cap.
+    state.update_param("crtm_curvature",  0.0)
+    state.update_param("crtm_scanline",   0.35)
+    state.update_param("crtm_grille",     0.15)
+    state.update_param("crtm_vignette",   0.10)
+    state.update_param("crtm_bloom",      0.0)
+    state.update_param("crtm_aberration", 0.0)
+    state.update_param("saturation",      0.60)
 
     # Apply user overrides on top of everything else.
     if not overrides:
@@ -3475,7 +3668,7 @@ def preview(audio_path: Path, media_folder: Path,
         for _ov in (settings.thermal_params, settings.cellular_params,
                     settings.elastic_grid_params, settings.crt_monitor_params,
                     settings.glitch_params, settings.modulate_params,
-                    settings.pixelate_params):
+                    settings.pixelate_params, settings.extra_fx_params):
             for k, v in (_ov or {}).items():
                 try:
                     state.update_param(k, float(v))
@@ -3735,6 +3928,9 @@ def preview(audio_path: Path, media_folder: Path,
             warp_cur_m  = None
             gpu_fade    = 1.0
 
+        # ---- first-beat ASCII logo flash (easter egg, composited on top) ----
+        _la = _logo_flash_alpha(t, beats, settings)
+
         # ── per-frame human modulation (LFOs + audio envelopes → params) ──
         mod_matrix.apply(params, t, audio)
 
@@ -3744,7 +3940,8 @@ def preview(audio_path: Path, media_folder: Path,
                    warp_cur=warp_cur_m, warp_prev=warp_prev_m,
                    fade_in=gpu_fade,
                    present_screen_size=(fb_w, fb_h),
-                   chaos_bbox=chaos_bbox)
+                   chaos_bbox=chaos_bbox,
+                   logo_alpha=_la)
         glfw.swap_buffers(win)
 
     # cleanup
@@ -3896,7 +4093,7 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
         for _ov in (settings.thermal_params, settings.cellular_params,
                     settings.elastic_grid_params, settings.crt_monitor_params,
                     settings.glitch_params, settings.modulate_params,
-                    settings.pixelate_params):
+                    settings.pixelate_params, settings.extra_fx_params):
             for k, v in (_ov or {}).items():
                 try:
                     state.update_param(k, float(v))
@@ -4131,6 +4328,9 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
             warp_cur_m  = None
             gpu_fade    = 1.0
 
+        # ---- first-beat ASCII logo flash (easter egg, composited on top) ----
+        _la = _logo_flash_alpha(t, beats, settings)
+
         # ── per-frame human modulation (LFOs + audio envelopes → params) ──
         mod_matrix.apply(params, t, audio)
 
@@ -4138,7 +4338,8 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
                              prev_frame_bgr=prev_frame,
                              warp_cur=warp_cur_m, warp_prev=warp_prev_m,
                              fade_in=gpu_fade,
-                             chaos_bbox=chaos_bbox)
+                             chaos_bbox=chaos_bbox,
+                             logo_alpha=_la)
         try:
             enc.stdin.write(out_bgr.tobytes())
         except BrokenPipeError:
@@ -4155,11 +4356,36 @@ def run(audio_path: Path, media_folder: Path, output_path: Path,
     pool.close()
     rdr.ctx.release()
 
+    # ── real bitstream datamosh (Avidemux-style) — export-only post-pass ──
+    dm_cfg = getattr(settings, "datamosh_render", None)
+    video_for_mux = tmp_video
+    if dm_cfg is not None and getattr(dm_cfg, "enabled", False):
+        report(0.93, "datamosh (bitstream)")
+        try:
+            import datamosh_bitstream as _dm
+            moshed = output_path.with_suffix(".mosh.mp4")
+            res = _dm.datamosh_video(
+                tmp_video, moshed, dm_cfg,
+                fps=settings.fps, duration=settings.duration,
+                seed=int(settings.seed) or 0,
+                crf=settings.crf, preset=settings.ffmpeg_preset,
+                out_w=ow_render, out_h=oh_render,
+                report=lambda m: report(0.94, m),
+            )
+            if res is not None:
+                video_for_mux = res
+            else:
+                report(0.94, "datamosh skipped (fell back to clean video)")
+        except Exception as e:
+            print(f"[automatch] datamosh post-process failed: {e}")
+
     report(0.95, "muxing audio")
-    _mux_audio(tmp_video, audio_path, output_path,
+    _mux_audio(video_for_mux, audio_path, output_path,
                settings.audio_offset_sec, settings.duration)
     try:
         tmp_video.unlink(missing_ok=True)
+        if video_for_mux != tmp_video:
+            video_for_mux.unlink(missing_ok=True)
     except Exception:
         pass
     report(1.00, f"done → {output_path}")

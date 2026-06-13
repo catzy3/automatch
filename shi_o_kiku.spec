@@ -89,6 +89,7 @@ a = Analysis(
         'state',
         'automatch',
         'automatch_gui',
+        'datamosh_bitstream',
         'audio',
         'modulation',
         'smart_random',

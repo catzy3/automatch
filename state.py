@@ -21,7 +21,7 @@ EFFECT_KINDS = (
     "pixel_sort", "wave_warp", "ascii_mosaic",
     # analog distortions:
     "datamosh", "pixel_swap", "mirror_flow", "vhs",
-    "rgb_split", "crt", "drip", "glitch", "dither",
+    "rgb_split", "crt_monitor", "drip", "glitch", "dither",
     "edges",
 )
 
@@ -58,7 +58,6 @@ def default_pipeline() -> List[EffectConfig]:
         EffectConfig("pixel_swap",      False, 0.40),
         EffectConfig("mirror_flow",     False, 0.45),
         EffectConfig("rgb_split",       False, 1.00),
-        EffectConfig("crt",             False, 1.00),
         EffectConfig("drip",            False, 0.60),
         EffectConfig("dither",          False, 1.00),
         EffectConfig("edges",           False, 0.80),
@@ -69,6 +68,16 @@ def default_pipeline() -> List[EffectConfig]:
         EffectConfig("cellular",        False, 0.70),
         EffectConfig("elastic_grid",    False, 0.70),
         EffectConfig("crt_monitor",     False, 1.00),
+        # ── new effects (30–31.05 batch) — must be present here or the GUI
+        #    grid can't enable them (override loop only touches existing
+        #    pipeline entries, it never appends). ──
+        EffectConfig("found_footage",         False, 0.70),
+        EffectConfig("chromatic_aberration",  False, 0.80),
+        EffectConfig("color_posterize",       False, 0.80),
+        EffectConfig("swirl",                 False, 0.70),
+        EffectConfig("iridescent_foil",       False, 0.70),
+        EffectConfig("motion_blur",           False, 0.70),
+        EffectConfig("advanced_glitch",       False, 0.65),
     ]
 
 
@@ -104,7 +113,9 @@ class Params:
     glitch_drop_chance: float = 0.1
     glitch_repeat_chance: float = 0.15
 
-    # CRT
+    # CRT (legacy — the original `crt` effect was replaced by `crt_monitor`.
+    #  Fields kept so old presets/sessions with crt_* keys still load cleanly;
+    #  no live/offline pipeline references them anymore.)
     crt_scanline_strength: float = 0.35
     crt_mask_strength: float = 0.25
     crt_curvature: float = 0.15
@@ -374,13 +385,15 @@ class Params:
     eg_jitter:   float = 0.5   # per-cell shear / chaos (0..1)
     eg_noise_mode: float = 0.0 # 0 = hash sin/cos, 1 = simplex flow (LYGIA)
 
-    # CRT monitor (v2) — barrel + aperture grille + bloom
-    crtm_curvature:  float = 0.30
-    crtm_scanline:   float = 0.50
-    crtm_grille:     float = 0.40
-    crtm_vignette:   float = 0.40
-    crtm_bloom:      float = 0.30
-    crtm_aberration: float = 0.50
+    # CRT monitor — barrel + aperture grille + bloom (the project's only CRT;
+    #  replaced the original scanline `crt` effect)
+    crtm_curvature:       float = 0.30
+    crtm_scanline:        float = 0.50
+    crtm_grille:          float = 0.40
+    crtm_vignette:        float = 0.40
+    crtm_bloom:           float = 0.30
+    crtm_aberration:      float = 0.50
+    crtm_aberration_mode: float = 0.0  # 0 radial · 1 barrel+split · 2 scanline-phase
 
     # Glitch — block-displacement digital glitch (feedback)
     glitch_block_size:    float = 0.30   # band/macroblock size (0..1)
@@ -400,6 +413,49 @@ class Params:
     pixelate_zoom:     float = 0.55   # 0..1 → feedback centre-zoom (0.5=neutral)
     pixelate_drift:    float = 0.30   # 0..1 → feedback vertical crawl
     pixelate_fb_mode:  float = 0.0    # 0=lighten(max) 1=add 2=over(mix)
+
+    # ---- new effects (30–31.05 batch) ----
+    # found_footage
+    ff_dropout_density:  float = 0.40
+    ff_dropout_strength: float = 0.70
+    ff_warp_amount:      float = 0.008
+    ff_ghost_opacity:    float = 0.12
+    ff_chroma_bleed:     float = 2.50
+    ff_luma_crush:       float = 0.40
+    # chromatic_aberration
+    ca_offset: float = 0.012
+    ca_radial: float = 0.80
+    ca_angle:  float = 0.00
+    ca_spin:   float = 0.00
+    # color_posterize
+    post_levels:     float = 6.0
+    post_color_mode: float = 0.0
+    post_dither_mix: float = 0.30
+    # swirl
+    swirl_strength: float = 3.0
+    swirl_radius:   float = 0.50
+    swirl_cx:       float = 0.50
+    swirl_cy:       float = 0.50
+    swirl_animate:  float = 0.00
+    # iridescent_foil
+    ir_hue_range: float = 0.50
+    ir_speed:     float = 0.40
+    ir_metallic:  float = 0.60
+    ir_scale:     float = 1.50
+    ir_opacity:   float = 0.70
+    # motion_blur
+    mb_samples: float = 8.0
+    mb_length:  float = 0.012
+    mb_angle:   float = 0.00
+    mb_radial:  float = 0.00
+    mb_cx:      float = 0.50
+    mb_cy:      float = 0.50
+    # advanced_glitch
+    ag_block_size:   float = 0.30
+    ag_shift_amount: float = 0.04
+    ag_chance:       float = 0.40
+    ag_color_shift:  float = 0.40
+    ag_speed:        float = 2.00
 
     # Wave warp — 3 wave layers
     wave_amp1: float = 0.30

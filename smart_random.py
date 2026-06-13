@@ -174,12 +174,13 @@ SMART_RANGES: Dict[str, Tuple[float, float]] = {
     "glitch_drop_chance":   (0.05, 0.25),
     "glitch_repeat_chance": (0.05, 0.20),
 
-    # crt
-    "crt_scanline_strength": (0.25, 0.60),
-    "crt_mask_strength":     (0.15, 0.45),
-    "crt_curvature":         (0.05, 0.25),
-    "crt_vignette":          (0.20, 0.50),
-    "crt_persistence":       (0.00, 0.30),
+    # crt_monitor (replaces the original crt)
+    "crtm_curvature":  (0.10, 0.45),
+    "crtm_scanline":   (0.25, 0.65),
+    "crtm_grille":     (0.20, 0.55),
+    "crtm_vignette":   (0.20, 0.55),
+    "crtm_bloom":      (0.10, 0.50),
+    "crtm_aberration": (0.20, 0.70),
 
     # drip
     "drip_speed": (0.005, 0.020),
@@ -207,6 +208,47 @@ SMART_RANGES: Dict[str, Tuple[float, float]] = {
     # hud_overlay (line thickness as a slider only)
     "hud_brightness":     (0.8, 1.8),
     "hud_line_thickness": (1.0, 3.0),
+
+    # ── new effects (30–31.05 batch) ──
+    # found_footage
+    "ff_dropout_density":  (0.20, 0.60),
+    "ff_dropout_strength": (0.40, 0.85),
+    "ff_warp_amount":      (0.004, 0.018),
+    "ff_ghost_opacity":    (0.05, 0.25),
+    "ff_chroma_bleed":     (1.0, 5.0),
+    "ff_luma_crush":       (0.20, 0.60),
+    # chromatic_aberration
+    "ca_offset": (0.004, 0.025),
+    "ca_radial": (0.40, 1.00),
+    "ca_angle":  (0.00, 6.28),
+    "ca_spin":   (0.00, 0.50),
+    # color_posterize
+    "post_levels":     (3.0, 12.0),
+    "post_color_mode": (0.0, 2.0),
+    "post_dither_mix": (0.10, 0.60),
+    # swirl
+    "swirl_strength": (1.0, 6.0),
+    "swirl_radius":   (0.30, 0.80),
+    "swirl_cx":       (0.35, 0.65),
+    "swirl_cy":       (0.35, 0.65),
+    "swirl_animate":  (0.00, 0.50),
+    # iridescent_foil
+    "ir_hue_range": (0.30, 0.80),
+    "ir_speed":     (0.20, 0.90),
+    "ir_metallic":  (0.40, 0.90),
+    "ir_scale":     (1.0, 3.0),
+    "ir_opacity":   (0.40, 0.85),
+    # motion_blur
+    "mb_samples": (6.0, 14.0),
+    "mb_length":  (0.004, 0.020),
+    "mb_angle":   (0.00, 6.28),
+    "mb_radial":  (0.00, 0.60),
+    # advanced_glitch
+    "ag_block_size":   (0.15, 0.50),
+    "ag_shift_amount": (0.02, 0.08),
+    "ag_chance":       (0.20, 0.60),
+    "ag_color_shift":  (0.20, 0.70),
+    "ag_speed":        (1.0, 3.5),
 }
 
 
@@ -237,11 +279,20 @@ ENABLE_WEIGHTS: Dict[str, float] = {
     "cctv_grid":   0.10,
     "rgb_split":   0.15,
     "glitch":      0.10,
-    "crt":         0.10,
+    "crt_monitor": 0.10,
     "drip":        0.10,
     "dither":      0.10,
     "quad_split":  0.05,
     "hud_overlay": 0.10,
+
+    # ── new effects (30–31.05 batch) ──
+    "found_footage":        0.20,
+    "chromatic_aberration": 0.25,
+    "color_posterize":      0.20,
+    "swirl":                0.15,
+    "iridescent_foil":      0.15,
+    "motion_blur":          0.20,
+    "advanced_glitch":      0.15,
 }
 
 
@@ -291,8 +342,8 @@ KIND_TO_PARAMS: dict[str, list[str]] = {
                      "vhs_color_loss", "vhs_head_switch"],
     "rgb_split":    ["rgb_shift_amount", "rgb_wave_frequency", "rgb_wave_speed"],
     "glitch":       ["glitch_block_size", "glitch_drop_chance", "glitch_repeat_chance"],
-    "crt":          ["crt_scanline_strength", "crt_mask_strength",
-                     "crt_curvature", "crt_vignette", "crt_persistence"],
+    "crt_monitor":  ["crtm_curvature", "crtm_scanline", "crtm_grille",
+                     "crtm_vignette", "crtm_bloom", "crtm_aberration"],
     "drip":         ["drip_speed", "drip_decay"],
     "dither":       ["dither_levels", "dither_grid_size",
                      "dither_osc_a_freq", "dither_osc_b_freq",
@@ -308,6 +359,21 @@ KIND_TO_PARAMS: dict[str, list[str]] = {
     "depth_apply":  ["depth_min", "depth_max", "depth_feather", "depth_invert"],
     "depth_view":   ["depth_view_mode", "depth_view_gain",
                      "depth_view_offset", "depth_view_invert"],
+
+    # ── new effects (30–31.05 batch) ──
+    "found_footage":        ["ff_dropout_density", "ff_dropout_strength",
+                             "ff_warp_amount", "ff_ghost_opacity",
+                             "ff_chroma_bleed", "ff_luma_crush"],
+    "chromatic_aberration": ["ca_offset", "ca_radial", "ca_angle", "ca_spin"],
+    "color_posterize":      ["post_levels", "post_color_mode", "post_dither_mix"],
+    "swirl":                ["swirl_strength", "swirl_radius",
+                             "swirl_cx", "swirl_cy", "swirl_animate"],
+    "iridescent_foil":      ["ir_hue_range", "ir_speed", "ir_metallic",
+                             "ir_scale", "ir_opacity"],
+    "motion_blur":          ["mb_samples", "mb_length", "mb_angle",
+                             "mb_radial", "mb_cx", "mb_cy"],
+    "advanced_glitch":      ["ag_block_size", "ag_shift_amount", "ag_chance",
+                             "ag_color_shift", "ag_speed"],
 }
 
 
