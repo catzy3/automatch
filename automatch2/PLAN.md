@@ -11,20 +11,19 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 1 — ЗАВЕРШЕНА** → начинаем Phase 2 |
-| Шаг | C1 готов: модуль `gfx` (Program+кэш юниформов, Quad, Fbo, PingPong) + verified passthrough-проход |
-| Последнее проверено (verified) | `GFX SELFTEST: PASS` — known-текстура (10,150,240) прогнана через GLSL-проход (свиззл bgr) в FBO, readback = (240,150,10). Доказан весь GL-конвейер на GPU. Сборка чистая, без warnings |
-| Следующее действие | Phase 2 — Media I/O: декод видео в GL-текстуру (ffmpeg CLI → rawvideo пайп, upload по PBO), базовый плеер в окне |
+| Фаза | **Phase 2 — ЗАВЕРШЕНА** → начинаем Phase 3 |
+| Шаг | C2 готов: `media` (ffmpeg-резолвер, проба размеров, `VideoReader` rawvideo-пайп) + живой плеер демо-клипа в окне |
+| Последнее проверено (verified) | `MEDIA SELFTEST: PASS` — сгенерён testsrc-клип, декодировано 5 кадров 160x90, контент непустой, ffmpeg найден (imageio). Окно с плеером отработало 8с без падения. GFX selftest по-прежнему PASS |
+| Следующее действие | Phase 3 — Effect graph: трейт `Effect` + реестр, перенос 6–8 GLSL-шейдеров из v1, цепочка с mix/blend, рендер кадра видео через цепочку в egui-вьюпорт (`PaintCallback`+`egui_glow`) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | _обновится после push C1_ |
+| Последний чекпоинт-коммит | _обновится после push C2_ |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▱▱▱▱▱▱▱▱ 2/10 (C0, C1)
+**Прогресс по фазам:** ▰▰▰▱▱▱▱▱▱▱ 3/10 (C0, C1, C2)
 
-> Примечание: визуальный вывод прохода в egui-вьюпорт (через `PaintCallback`) отложен до
-> Phase 2, когда появятся реальные кадры для показа. C1 проверен headless-readback'ом —
-> это надёжнее, чем «посмотреть глазами».
+> Текущий показ кадра идёт через egui-текстуру (CPU→GPU). В Phase 3 кадр пойдёт на GL-текстуру
+> и через цепочку эффектов прямо в GL (PaintCallback) — egui-текстура останется для отладки.
 
 ---
 
@@ -287,7 +286,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 **Фазы:**
 - [x] C0 Scaffold (cargo + winit+glow+egui окно) — `e841b8e` build OK, окно запускается
 - [x] C1 Core GFX (Program+кэш, Quad, Fbo, PingPong) — selftest PASS (readback свиззла)
-- [ ] C2 Media decode → GL
+- [x] C2 Media decode → GL — MEDIA selftest PASS (5 кадров 160x90), плеер в окне
 - [ ] C3 Effect graph + порт шейдеров
 - [ ] C4 Audio + timeline (beat-sync)
 - [ ] C5 Export + нативный датамош
@@ -327,3 +326,4 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — Решение по стеку: **Rust + glow + egui** (вместо C++). Причина — дословный перенос GLSL-шейдеров (glow=OpenGL) + безопасность/cargo. Обновлены §3–§5, §7–§8, §10. wgpu отложен (требует WGSL). Verify: n/a (документ).
 - 2026-06-14 — **C0 (Phase 0) ГОТОВ.** Поставлен Rust (rustup, stable-msvc). Создан cargo-скелет `automatch2/` на `eframe` (winit+glutin+glow+egui): окно «automatch 2 — C0 scaffold», egui-панель показывает версию OpenGL и FPS. Решено брать GL-контекст через `eframe::glow` и рисовать кастомный GL в вьюпорт через `egui::PaintCallback`+`egui_glow::CallbackFn`. Verify: `cargo build` Finished (1m21s); бинарник запущен — окно жило 8с без падения. Файлы: `Cargo.toml`, `src/main.rs`, `.gitignore` (игнор `/target`).
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
+- 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
