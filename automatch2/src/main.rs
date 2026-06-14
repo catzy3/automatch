@@ -27,6 +27,9 @@ struct Player {
     ffmpeg: PathBuf,
     src: PathBuf,
     reader: Option<media::VideoReader>,
+    montage: Option<montage::MontageFrameSource>, // Some → beat-sync montage mode
+    duration: f32,                                // montage total length
+    clock: Instant,                               // montage playback clock
     buf: Vec<u8>,
     size: [usize; 2],
     last_advance: Instant,
@@ -42,12 +45,37 @@ impl Player {
             ffmpeg,
             src,
             reader: Some(reader),
+            montage: None,
+            duration: 0.0,
+            clock: Instant::now(),
             buf: Vec::new(),
             size,
             last_advance: Instant::now(),
             fps,
             frame_idx: 0,
         })
+    }
+
+    /// Open in montage mode: a clip pool driven by the beat-sync timeline.
+    fn open_montage(
+        ffmpeg: PathBuf,
+        mont: montage::MontageFrameSource,
+        duration: f32,
+        fps: f32,
+    ) -> Self {
+        Self {
+            ffmpeg,
+            src: PathBuf::from("<montage>"),
+            reader: None,
+            montage: Some(mont),
+            duration,
+            clock: Instant::now(),
+            buf: Vec::new(),
+            size: [0, 0],
+            last_advance: Instant::now(),
+            fps,
+            frame_idx: 0,
+        }
     }
 
     /// Decode the next frame if it's time. Returns true when `buf` holds a fresh,
@@ -59,6 +87,23 @@ impl Player {
         }
         self.last_advance = Instant::now();
 
+        // ── montage mode: pull from the timeline-driven clip source ──
+        if self.montage.is_some() {
+            let mut t = self.clock.elapsed().as_secs_f32();
+            if self.duration > 0.0 {
+                t %= self.duration;
+            }
+            let got = self.montage.as_mut().unwrap().frame_at(t, &mut self.buf);
+            if got {
+                if let Some((w, h)) = self.montage.as_ref().unwrap().dimensions() {
+                    self.size = [w as usize, h as usize];
+                }
+                self.frame_idx += 1;
+            }
+            return got && self.buf.len() == self.size[0] * self.size[1] * 4;
+        }
+
+        // ── single-clip mode ──
         let got = match self.reader.as_mut() {
             Some(r) => r.next_frame(&mut self.buf).unwrap_or(false),
             None => false,
@@ -249,7 +294,22 @@ impl AutomatchApp {
             }],
         };
 
-        let player = {
+        // AM2_MONTAGE_DIR=<folder> boots straight into montage mode (also the
+        // headless check of the montage player path); otherwise the demo clip.
+        let player = if let Ok(dir) = std::env::var("AM2_MONTAGE_DIR") {
+            let pool = montage::ClipPool::from_folder(&PathBuf::from(&dir));
+            if pool.is_empty() {
+                eprintln!("MONTAGE PLAYER: no clips in {dir}");
+                None
+            } else {
+                let dur = 4.0f32;
+                let beats: Vec<f32> = (0..8).map(|k| k as f32 * 0.5).collect();
+                let cuts = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
+                eprintln!("MONTAGE PLAYER: {} clips, {} cuts", pool.len(), cuts.len());
+                let mont = montage::MontageFrameSource::new(pool, cuts);
+                Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0))
+            }
+        } else {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
             match media::generate_test_clip(&ffmpeg, &demo, 640, 360, 6.0)
@@ -403,6 +463,32 @@ impl eframe::App for AutomatchApp {
                     format!("BPM {:.1} · {} битов · {} cuts · {:.1}s",
                         a.bpm, a.beats.len(), self.timeline_cuts, a.duration),
                 );
+            }
+            if ui.button("📁 Папка клипов → монтаж…").clicked() {
+                if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                    let pool = montage::ClipPool::from_folder(&dir);
+                    if pool.is_empty() {
+                        self.export_status = "в папке нет видео".to_owned();
+                    } else {
+                        // timeline from loaded audio beats, else uniform 120 BPM
+                        let (beats, dur) = match self.analysis.as_ref() {
+                            Some(a) => (a.beats.clone(), a.duration),
+                            None => {
+                                let dur = 12.0;
+                                let beats: Vec<f32> =
+                                    (0..(dur as i32 * 2)).map(|k| k as f32 * 0.5).collect();
+                                (beats, dur)
+                            }
+                        };
+                        let cuts = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
+                        let n = pool.len();
+                        let mont = montage::MontageFrameSource::new(pool, cuts);
+                        self.player =
+                            Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
+                        self.video_tex = None;
+                        self.export_status = format!("монтаж: {n} клипов, {dur:.0}s");
+                    }
+                }
             }
             ui.separator();
             ui.label(format!("OpenGL: {}", self.gl_version));

@@ -10,13 +10,13 @@
 
 | Поле | Значение |
 |---|---|
-| Дата обновления | 2026-06-14 |
-| Фаза | **Phase 7 + старт монтажного движка** (17 эффектов; beat-sync ✓; ClipPool ✓) |
-| Шаг | Готово: 17 эффектов, beat-sync, feedback+history инфра, и **ядро монтажного движка** (`montage.rs`: ClipPool + переключение клипов по таймлайну). |
-| Последнее проверено (verified) | **MONTAGE SELFTEST: PASS** — 2 клипа red/blue + чередующийся таймлайн → кадры [blue,red,blue,red] меняются cut-к-cut. Все остальные selftest'ы тоже зелёные. Сборка чистая |
-| Следующее действие | Дотянуть монтаж до живого использования: (1) кнопка «📁 Папка клипов» → `ClipPool::from_folder` + `MontageFrameSource` как источник плеера (вместо демо); (2) random in-points (`-ss`); (3) переходы на склейках (crossfade). Затем: egui dockspace, глубокие параметры/пресеты |
+| Дата обновления | 2026-06-15 |
+| Фаза | **Phase 7 + монтаж работает вживую** (17 эффектов; beat-sync ✓; монтаж ✓) |
+| Шаг | Монтаж подключён к плееру: кнопка «📁 Папка клипов» → ClipPool + таймлайн → live beat-монтаж через цепочку эффектов. **Ядро авто-редактора замкнулось** (клипы+музыка→монтаж+эффекты→превью). |
+| Последнее проверено (verified) | `MONTAGE PLAYER: 3 clips, 8 cuts` — запуск из папки 3 клипов, окно 7с без паник (кадры монтажа через цепочку). MONTAGE+все остальные selftest'ы зелёные. Сборка чистая |
+| Следующее действие | (1) **Экспорт монтажа** (сейчас `export_clip` = один клип; нужен рендер всех монтажных кадров→encode); (2) random in-points (`-ss` в `VideoReader`); (3) переходы (crossfade) на склейках. Затем egui dockspace, глубокие параметры/пресеты |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `a6449fb` (монтаж: ClipPool + переключение) |
+| Последний чекпоинт-коммит | `a6449fb` (будет обновлён) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
@@ -332,6 +332,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
 - 2026-06-14 — **C5 экспорт-ядро ГОТОВО.** `src/export.rs`: `Encoder` (ffmpeg `-f rawvideo -pix_fmt rgba` stdin → libx264 mp4), `export_clip` (декод→цепочка→кодирование), `selftest` (клип→экспорт→переоткрытие). Verify: `EXPORT SELFTEST: PASS` — 30 кадров закодировано, результат переоткрыт 160x90.
+- 2026-06-15 — **МОНТАЖ подключён к живому плееру.** `Player` получил монтажный режим (`montage`/`duration`/`clock` + `open_montage` + ветка в `advance_decode`): тянет кадры из `MontageFrameSource` по playback-времени. Кнопка «📁 Папка клипов → монтаж» (rfd folder): `ClipPool::from_folder` + таймлайн из загруженного аудио (или 120 BPM по умолчанию) → плеер в монтажном режиме. Env `AM2_MONTAGE_DIR` для headless-проверки. Verify: запуск с папкой из 3 цветных клипов → `MONTAGE PLAYER: 3 clips, 8 cuts`, окно 7с без паник (кадры монтажа идут через цепочку). **Ядро замкнулось: клипы+музыка→beat-монтаж+эффекты (live).** Осталось: экспорт монтажа (сейчас export_clip — один клип), random in-points, переходы.
 - 2026-06-14 — **МОНТАЖНЫЙ ДВИЖОК: ядро (ClipPool + переключение клипов).** ⭐ Начат перенос ядра авто-редактора. `src/montage.rs`: `ClipPool` (из папки/списка, скан видео-расширений), `MontageFrameSource::frame_at(t)` — по времени находит активный cut → декодит из назначенного таймлайном клипа, переключает `VideoReader` на склейках, луп клипа короче cut'а. `media::generate_color_clip` для тестов. Verify: `MONTAGE SELFTEST: PASS` — 2 клипа (red/blue) + чередующийся таймлайн → кадры [blue,red,blue,red] меняются cut-к-cut (выбор клипа + декод + переключение работают). Осталось: подключить к живому плееру (кнопка «папка»), random in-points, переходы, рендер цепочки поверх.
 - 2026-06-14 — **Phase 7: beat-sync→эффекты + beat_punch (итого 17).** ⭐ Ключевой дифференциатор: `EffectChain` получил поле `beat` + `set_beat()`, прокидывается в шейдеры как `u_beat`. В `main.rs` beat считается из `analysis.beats` + playback-времени плеера (ближайший прошлый бит → `exp(-6·dt)` пульс), `set_beat` перед `process`. Эффект `beat_punch` (zoom-удар + вспышка + RGB-шейк по `u_beat`). Новый `selftest_beat`. Verify: `BEAT SELFTEST: PASS` — серый 128 при beat=0 → 205 при beat=1 (вспышка 1.6× точно). При загруженном аудио пульсирует на биты.
 - 2026-06-14 — **Phase 7: +neon_edge, light_leaks (итого 16).** `neon_edge` (3×3 Sobel → свечение контуров с цикличным cos-hue по времени), `light_leaks` (мягкие тёплые/холодные блобы, дрейф от краёв, screen-blend = киношная засветка). Verify: `EFFECTS SELFTEST: PASS` без ошибок компиляции (все 16 шейдеров на GPU). 16 featured-эффектов.
