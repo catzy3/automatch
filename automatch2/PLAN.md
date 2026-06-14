@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | EFFECTS+FEEDBACK+TIMEDISP+FLOWMOSH PASS; `EFFECTS SELFTEST: PASS` компилит все 16 шейдеров. С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
 | Следующее действие | (1) **beat-sync→эффекты**: прокинуть `u_beat` (фаза бита из audio.beats + playback-время) в `process()` → beat-эффекты (punch/strobe); (2) egui dockspace; (3) node-graph. Ещё эффекты: ASCII, dither, tilt-shift(depth) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `ed62368` (будет обновлён) |
+| Последний чекпоинт-коммит | `5d6c751` (neon_edge+light_leaks, 16 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
