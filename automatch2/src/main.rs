@@ -108,6 +108,7 @@ struct AutomatchApp {
 
 impl AutomatchApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        apply_retro_theme(&cc.egui_ctx);
         let (gl_version, gfx_selftest, gfx_ok) = match cc.gl.as_ref() {
             Some(gl) => {
                 use eframe::glow::HasContext as _;
@@ -395,6 +396,44 @@ impl eframe::App for AutomatchApp {
 
         ctx.request_repaint();
     }
+}
+
+/// Retro-glitch egui theme: near-black panels, magenta/cyan accents, sharp
+/// corners, monospace everywhere — the "shi o kiku" aesthetic.
+fn apply_retro_theme(ctx: &egui::Context) {
+    use egui::{Color32, Rounding, Stroke};
+    let magenta = Color32::from_rgb(255, 46, 136);
+    let cyan = Color32::from_rgb(60, 220, 255);
+    let bg = Color32::from_rgb(10, 10, 16);
+    let panel = Color32::from_rgb(16, 16, 24);
+    let text = Color32::from_rgb(222, 226, 232);
+
+    let mut style = (*ctx.style()).clone();
+    let mut v = egui::Visuals::dark();
+    v.panel_fill = panel;
+    v.window_fill = bg;
+    v.extreme_bg_color = Color32::from_rgb(6, 6, 10);
+    v.faint_bg_color = Color32::from_rgb(22, 22, 32);
+    v.override_text_color = Some(text);
+    v.hyperlink_color = cyan;
+    v.selection.bg_fill = magenta.gamma_multiply(0.45);
+    v.selection.stroke = Stroke::new(1.0, magenta);
+    v.window_rounding = Rounding::ZERO;
+    v.menu_rounding = Rounding::ZERO;
+    for w in [
+        &mut v.widgets.noninteractive,
+        &mut v.widgets.inactive,
+        &mut v.widgets.hovered,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
+        w.rounding = Rounding::ZERO;
+    }
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, cyan);
+    v.widgets.active.bg_stroke = Stroke::new(1.0, magenta);
+    style.visuals = v;
+    style.override_text_style = Some(egui::TextStyle::Monospace);
+    ctx.set_style(style);
 }
 
 fn main() -> eframe::Result<()> {
