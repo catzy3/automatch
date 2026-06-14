@@ -85,8 +85,12 @@ struct AutomatchApp {
     effects_ok: bool,
     audio_selftest: String,
     audio_ok: bool,
+    audio_file_selftest: String,
+    audio_file_ok: bool,
     timeline_selftest: String,
     timeline_ok: bool,
+    analysis: Option<audio::AudioAnalysis>,
+    timeline_cuts: usize,
     export_selftest: String,
     export_ok: bool,
     datamosh_selftest: String,
@@ -150,6 +154,12 @@ impl AutomatchApp {
         };
         eprintln!("AUDIO SELFTEST: {audio_selftest}");
 
+        let (audio_file_selftest, audio_file_ok) = match audio::selftest_file() {
+            Ok(d) => (format!("PASS — {d}"), true),
+            Err(e) => (format!("FAIL — {e}"), false),
+        };
+        eprintln!("AUDIO-FILE SELFTEST: {audio_file_selftest}");
+
         let (timeline_selftest, timeline_ok) = match timeline::selftest() {
             Ok(d) => (format!("PASS — {d}"), true),
             Err(e) => (format!("FAIL — {e}"), false),
@@ -211,8 +221,12 @@ impl AutomatchApp {
             effects_ok,
             audio_selftest,
             audio_ok,
+            audio_file_selftest,
+            audio_file_ok,
             timeline_selftest,
             timeline_ok,
+            analysis: None,
+            timeline_cuts: 0,
             export_selftest,
             export_ok,
             datamosh_selftest,
@@ -293,7 +307,29 @@ impl eframe::App for AutomatchApp {
                     .file_name()
                     .map(|s| s.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                ui.label(format!("источник: {name}"));
+                ui.label(format!("видео: {name}"));
+            }
+            if ui.button("🎵 Загрузить аудио (анализ битов)…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("audio", &["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus"])
+                    .pick_file()
+                {
+                    match audio::analyze(&media::ffmpeg_path(), &path) {
+                        Ok(a) => {
+                            let cuts = timeline::build_timeline(&a.beats, a.duration, 1.0, 8, 1);
+                            self.timeline_cuts = cuts.len();
+                            self.analysis = Some(a);
+                        }
+                        Err(e) => eprintln!("analyze audio: {e}"),
+                    }
+                }
+            }
+            if let Some(a) = self.analysis.as_ref() {
+                ui.colored_label(
+                    egui::Color32::from_rgb(120, 200, 255),
+                    format!("BPM {:.1} · {} битов · {} cuts · {:.1}s",
+                        a.bpm, a.beats.len(), self.timeline_cuts, a.duration),
+                );
             }
             ui.separator();
             ui.label(format!("OpenGL: {}", self.gl_version));
@@ -312,6 +348,7 @@ impl eframe::App for AutomatchApp {
             ui.colored_label(c(self.media_ok), format!("MEDIA: {}", self.media_selftest));
             ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
             ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
+            ui.colored_label(c(self.audio_file_ok), format!("AUDIO-FILE: {}", self.audio_file_selftest));
             ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
             ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
             ui.colored_label(c(self.datamosh_ok), format!("DATAMOSH: {}", self.datamosh_selftest));

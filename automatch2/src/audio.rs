@@ -203,6 +203,37 @@ pub fn analyze(ffmpeg: &Path, file: &Path) -> Result<AudioAnalysis, String> {
     Ok(AudioAnalysis { bpm, beats, duration })
 }
 
+/// Headless check of the FILE path: ffmpeg generates a rhythmic 120 BPM click
+/// WAV, then `decode_pcm` + `analyze` recover the tempo. Exercises the real
+/// decode pipeline (unlike `selftest`, which uses in-memory PCM).
+pub fn selftest_file() -> Result<String, String> {
+    let ffmpeg = crate::media::ffmpeg_path();
+    let tmp = std::env::temp_dir().join("am2_audio_selftest.wav");
+    // 1 kHz tone decaying every 0.5 s → clicks at 120 BPM.
+    // (t - 0.5*floor(t/0.5)) is `t mod 0.5` without a comma in the expr.
+    let expr = "sin(6283.185*t)*exp(-8*(t-0.5*floor(t/0.5)))";
+    let src = format!("aevalsrc={expr}:s={SR}:d=6");
+    let st = Command::new(&ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg(&src)
+        .arg(&tmp)
+        .status()
+        .map_err(|e| format!("gen click wav: {e}"))?;
+    if !st.success() || !tmp.exists() {
+        return Err("click wav generation failed".into());
+    }
+    let res = analyze(&ffmpeg, &tmp);
+    let _ = std::fs::remove_file(&tmp);
+    let a = res?;
+    let ok = (a.bpm - 120.0).abs() <= 6.0 && a.beats.len() >= 10 && a.duration >= 5.0;
+    let msg = format!("file decode → bpm={:.1}, beats={}, {:.1}s", a.bpm, a.beats.len(), a.duration);
+    if ok {
+        Ok(msg)
+    } else {
+        Err(msg)
+    }
+}
+
 /// Headless check: synthesize a 120 BPM click track and confirm detection.
 pub fn selftest() -> Result<String, String> {
     let bpm_true = 120.0f32;
