@@ -236,7 +236,7 @@ impl PingPong {
     }
 }
 
-const VS_FULLSCREEN: &str = r#"#version 330 core
+pub const VS_FULLSCREEN: &str = r#"#version 330 core
 layout(location=0) in vec2 in_pos;
 layout(location=1) in vec2 in_uv;
 out vec2 v_uv;

@@ -1,27 +1,26 @@
-//! AutoMatch 2 — Phases 0–2 scaffold.
+//! AutoMatch 2 — Phases 0–3 scaffold.
 //!
-//!   * window (winit, via eframe)
-//!   * egui immediate-mode UI
-//!   * glow (OpenGL) context + GFX core (see `gfx`)
-//!   * media decode → on-screen video player (see `media`)
+//!   * window (winit, via eframe) + egui UI + glow (OpenGL) context
+//!   * GFX core (`gfx`): programs, quad, FBO, ping-pong
+//!   * media decode → player (`media`)
+//!   * effect graph (`effects`): GLSL passes over each frame, toggled live
 //!
-//! Self-tests for the GFX pipeline and media decode run at startup and report
-//! PASS/FAIL in the panel and on stderr, so each layer is proven, not assumed.
+//! Each layer self-tests at startup (PASS/FAIL in the panel and on stderr).
 
 use eframe::egui;
 use std::path::PathBuf;
 use std::time::Instant;
 
+mod effects;
 mod gfx;
 mod media;
 
 /// Minimal video player: decodes frames on the main thread, paced by wall clock,
-/// uploads each to an egui texture, loops at end of stream.
+/// loops at end of stream. Display + effects happen in the app `update`.
 struct Player {
     ffmpeg: PathBuf,
     src: PathBuf,
     reader: Option<media::VideoReader>,
-    tex: Option<egui::TextureHandle>,
     buf: Vec<u8>,
     size: [usize; 2],
     last_advance: Instant,
@@ -37,7 +36,6 @@ impl Player {
             ffmpeg,
             src,
             reader: Some(reader),
-            tex: None,
             buf: Vec::new(),
             size,
             last_advance: Instant::now(),
@@ -46,10 +44,12 @@ impl Player {
         })
     }
 
-    fn advance(&mut self, ctx: &egui::Context) {
+    /// Decode the next frame if it's time. Returns true when `buf` holds a fresh,
+    /// correctly-sized frame this tick.
+    fn advance_decode(&mut self) -> bool {
         let dt = 1.0 / self.fps.max(1.0);
         if self.last_advance.elapsed().as_secs_f32() < dt {
-            return;
+            return false;
         }
         self.last_advance = Instant::now();
 
@@ -58,7 +58,6 @@ impl Player {
             None => false,
         };
         if !got {
-            // end of stream → reopen (loop)
             self.reader = media::VideoReader::open(&self.ffmpeg, &self.src).ok();
             if let Some(r) = self.reader.as_mut() {
                 let _ = r.next_frame(&mut self.buf);
@@ -67,14 +66,7 @@ impl Player {
         } else {
             self.frame_idx += 1;
         }
-
-        if self.buf.len() == self.size[0] * self.size[1] * 4 {
-            let img = egui::ColorImage::from_rgba_unmultiplied(self.size, &self.buf);
-            match &mut self.tex {
-                Some(t) => t.set(img, egui::TextureOptions::LINEAR),
-                None => self.tex = Some(ctx.load_texture("video", img, egui::TextureOptions::LINEAR)),
-            }
-        }
+        self.buf.len() == self.size[0] * self.size[1] * 4
     }
 }
 
@@ -84,7 +76,12 @@ struct AutomatchApp {
     gfx_ok: bool,
     media_selftest: String,
     media_ok: bool,
+    effects_selftest: String,
+    effects_ok: bool,
     player: Option<Player>,
+    chain: Option<effects::EffectChain>,
+    video_tex: Option<egui::TextureHandle>,
+    start: Instant,
     frames: u64,
 }
 
@@ -110,8 +107,26 @@ impl AutomatchApp {
         };
         eprintln!("MEDIA SELFTEST: {media_selftest}");
 
-        // Spin up a demo player on a freshly generated clip (until the file
-        // picker lands in the UI phase).
+        let (chain, effects_selftest, effects_ok) = match cc.gl.as_ref() {
+            Some(gl) => {
+                let (msg, ok) = match effects::selftest(gl) {
+                    Ok(d) => (format!("PASS — {d}"), true),
+                    Err(e) => (format!("FAIL — {e}"), false),
+                };
+                eprintln!("EFFECTS SELFTEST: {msg}");
+                let chain = unsafe { effects::EffectChain::new(gl) }
+                    .map(|mut c| {
+                        // a tasteful default look on the demo clip
+                        c.set("chroma_aberration", true, 0.6);
+                        c.set("crt_scanlines", true, 0.45);
+                        c
+                    })
+                    .ok();
+                (chain, msg, ok)
+            }
+            None => (None, "skipped (no gl)".to_owned(), false),
+        };
+
         let player = {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
@@ -132,22 +147,46 @@ impl AutomatchApp {
             gfx_ok,
             media_selftest,
             media_ok,
+            effects_selftest,
+            effects_ok,
             player,
+            chain,
+            video_tex: None,
+            start: Instant::now(),
             frames: 0,
         }
     }
 }
 
 impl eframe::App for AutomatchApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.frames += 1;
-        if let Some(p) = self.player.as_mut() {
-            p.advance(ctx);
+        let time = self.start.elapsed().as_secs_f32();
+
+        // decode → effect chain → texture
+        let new = self.player.as_mut().map(|p| p.advance_decode()).unwrap_or(false);
+        if new {
+            if let Some(p) = self.player.as_ref() {
+                let w = p.size[0] as i32;
+                let h = p.size[1] as i32;
+                let processed: Option<Vec<u8>> = match (frame.gl(), self.chain.as_mut()) {
+                    (Some(gl), Some(chain)) => unsafe { chain.process(gl, &p.buf, w, h, time).ok() },
+                    _ => None,
+                };
+                let data = processed.unwrap_or_else(|| p.buf.clone());
+                if data.len() == (w * h * 4) as usize {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &data);
+                    match &mut self.video_tex {
+                        Some(t) => t.set(img, egui::TextureOptions::LINEAR),
+                        None => self.video_tex = Some(ctx.load_texture("video", img, egui::TextureOptions::LINEAR)),
+                    }
+                }
+            }
         }
 
-        egui::SidePanel::left("status").min_width(360.0).show(ctx, |ui| {
+        egui::SidePanel::left("status").min_width(330.0).show(ctx, |ui| {
             ui.heading("automatch 2");
-            ui.label("Phases 0–2 — окно + GFX + медиа-декод");
+            ui.label("Phases 0–3 — окно + GFX + медиа + эффекты");
             ui.separator();
             ui.label(format!("OpenGL: {}", self.gl_version));
             let dt = ctx.input(|i| i.unstable_dt).max(1e-4);
@@ -161,20 +200,31 @@ impl eframe::App for AutomatchApp {
                     egui::Color32::from_rgb(230, 80, 80)
                 }
             };
-            ui.colored_label(c(self.gfx_ok), format!("GFX selftest: {}", self.gfx_selftest));
-            ui.add_space(4.0);
-            ui.colored_label(c(self.media_ok), format!("MEDIA selftest: {}", self.media_selftest));
-            ui.add_space(8.0);
-            match self.player.as_ref() {
-                Some(p) => ui.label(format!("плеер: {}x{} кадр #{}", p.size[0], p.size[1], p.frame_idx)),
-                None => ui.colored_label(c(false), "плеер: нет (ffmpeg?)"),
-            };
+            ui.colored_label(c(self.gfx_ok), format!("GFX: {}", self.gfx_selftest));
+            ui.colored_label(c(self.media_ok), format!("MEDIA: {}", self.media_selftest));
+            ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
+            ui.separator();
+
+            ui.strong("Цепочка эффектов");
+            if let Some(chain) = self.chain.as_mut() {
+                for e in chain.effects.iter_mut().filter(|e| e.is_featured()) {
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut e.enabled, e.name);
+                    });
+                    ui.add_enabled(
+                        e.enabled,
+                        egui::Slider::new(&mut e.mix, 0.0..=1.0).text("mix"),
+                    );
+                }
+            } else {
+                ui.colored_label(c(false), "цепочка недоступна");
+            }
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Превью (демо-клип)");
-            if let Some(p) = self.player.as_ref() {
-                if let Some(tex) = p.tex.as_ref() {
+            ui.heading("Превью (демо-клип через цепочку)");
+            match (self.player.as_ref(), self.video_tex.as_ref()) {
+                (Some(p), Some(tex)) => {
                     let avail = ui.available_size();
                     let aspect = p.size[0] as f32 / p.size[1] as f32;
                     let mut w = avail.x.min(p.size[0] as f32 * 2.0);
@@ -184,28 +234,27 @@ impl eframe::App for AutomatchApp {
                         w = h * aspect;
                     }
                     ui.image(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h)));
-                } else {
-                    ui.label("декодирование первого кадра…");
                 }
-            } else {
-                ui.label("плеер недоступен");
+                _ => {
+                    ui.label("декодирование…");
+                }
             }
         });
 
-        ctx.request_repaint(); // keep the player animating
+        ctx.request_repaint();
     }
 }
 
 fn main() -> eframe::Result<()> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 640.0])
-            .with_title("automatch 2 — C2 media"),
+            .with_inner_size([1180.0, 680.0])
+            .with_title("automatch 2 — C3 effects"),
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
     eframe::run_native(
-        "automatch 2 — C2 media",
+        "automatch 2 — C3 effects",
         native_options,
         Box::new(|cc| Ok(Box::new(AutomatchApp::new(cc)))),
     )
