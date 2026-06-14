@@ -111,6 +111,10 @@ struct AutomatchApp {
 impl AutomatchApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         apply_retro_theme(&cc.egui_ctx);
+        // Cheap CPU/GL selftests always run; the ffmpeg-spawning ones
+        // (media/audio-file/export/datamosh) only with AM2_SELFTEST set, so a
+        // normal launch isn't delayed by ~4 ffmpeg passes.
+        let run_st = std::env::var("AM2_SELFTEST").is_ok();
         let (gl_version, gfx_selftest, gfx_ok) = match cc.gl.as_ref() {
             Some(gl) => {
                 use eframe::glow::HasContext as _;
@@ -125,11 +129,17 @@ impl AutomatchApp {
             None => ("<no GL context>".to_owned(), "skipped (no gl)".to_owned(), false),
         };
 
-        let (media_selftest, media_ok) = match media::selftest() {
-            Ok(d) => (format!("PASS — {d}"), true),
-            Err(e) => (format!("FAIL — {e}"), false),
+        let (media_selftest, media_ok) = if run_st {
+            match media::selftest() {
+                Ok(d) => (format!("PASS — {d}"), true),
+                Err(e) => (format!("FAIL — {e}"), false),
+            }
+        } else {
+            ("off (AM2_SELFTEST)".to_owned(), true)
         };
-        eprintln!("MEDIA SELFTEST: {media_selftest}");
+        if run_st {
+            eprintln!("MEDIA SELFTEST: {media_selftest}");
+        }
 
         let (chain, effects_selftest, effects_ok) = match cc.gl.as_ref() {
             Some(gl) => {
@@ -157,11 +167,17 @@ impl AutomatchApp {
         };
         eprintln!("AUDIO SELFTEST: {audio_selftest}");
 
-        let (audio_file_selftest, audio_file_ok) = match audio::selftest_file() {
-            Ok(d) => (format!("PASS — {d}"), true),
-            Err(e) => (format!("FAIL — {e}"), false),
+        let (audio_file_selftest, audio_file_ok) = if run_st {
+            match audio::selftest_file() {
+                Ok(d) => (format!("PASS — {d}"), true),
+                Err(e) => (format!("FAIL — {e}"), false),
+            }
+        } else {
+            ("off (AM2_SELFTEST)".to_owned(), true)
         };
-        eprintln!("AUDIO-FILE SELFTEST: {audio_file_selftest}");
+        if run_st {
+            eprintln!("AUDIO-FILE SELFTEST: {audio_file_selftest}");
+        }
 
         let (timeline_selftest, timeline_ok) = match timeline::selftest() {
             Ok(d) => (format!("PASS — {d}"), true),
@@ -169,20 +185,29 @@ impl AutomatchApp {
         };
         eprintln!("TIMELINE SELFTEST: {timeline_selftest}");
 
-        let (export_selftest, export_ok) = match cc.gl.as_ref() {
-            Some(gl) => match export::selftest(gl) {
+        let (export_selftest, export_ok) = match (run_st, cc.gl.as_ref()) {
+            (true, Some(gl)) => match export::selftest(gl) {
                 Ok(d) => (format!("PASS — {d}"), true),
                 Err(e) => (format!("FAIL — {e}"), false),
             },
-            None => ("skipped (no gl)".to_owned(), false),
+            (true, None) => ("skipped (no gl)".to_owned(), false),
+            (false, _) => ("off (AM2_SELFTEST)".to_owned(), true),
         };
-        eprintln!("EXPORT SELFTEST: {export_selftest}");
+        if run_st {
+            eprintln!("EXPORT SELFTEST: {export_selftest}");
+        }
 
-        let (datamosh_selftest, datamosh_ok) = match datamosh::selftest() {
-            Ok(d) => (format!("PASS — {d}"), true),
-            Err(e) => (format!("FAIL — {e}"), false),
+        let (datamosh_selftest, datamosh_ok) = if run_st {
+            match datamosh::selftest() {
+                Ok(d) => (format!("PASS — {d}"), true),
+                Err(e) => (format!("FAIL — {e}"), false),
+            }
+        } else {
+            ("off (AM2_SELFTEST)".to_owned(), true)
         };
-        eprintln!("DATAMOSH SELFTEST: {datamosh_selftest}");
+        if run_st {
+            eprintln!("DATAMOSH SELFTEST: {datamosh_selftest}");
+        }
 
         let (modmatrix_selftest, modmatrix_ok) = match modmatrix::selftest() {
             Ok(d) => (format!("PASS — {d}"), true),
