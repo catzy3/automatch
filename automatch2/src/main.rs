@@ -99,6 +99,8 @@ struct AutomatchApp {
     modmatrix_ok: bool,
     modmatrix: modmatrix::ModMatrix,
     mod_demo: bool,
+    export_request: Option<PathBuf>,
+    export_status: String,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -236,6 +238,10 @@ impl AutomatchApp {
             modmatrix_ok,
             modmatrix,
             mod_demo: false,
+            // AM2_AUTOEXPORT=<path> triggers a one-shot export on first frame
+            // (headless verification of the update-loop export path).
+            export_request: std::env::var("AM2_AUTOEXPORT").ok().map(PathBuf::from),
+            export_status: String::new(),
             player,
             chain,
             video_tex: None,
@@ -372,6 +378,26 @@ impl eframe::App for AutomatchApp {
             } else {
                 ui.colored_label(c(false), "цепочка недоступна");
             }
+
+            ui.separator();
+            let can_export = self.player.is_some() && self.chain.is_some();
+            if ui
+                .add_enabled(can_export, egui::Button::new("⬇ Экспорт MP4…"))
+                .clicked()
+            {
+                let default_name = "automatch2_out.mp4";
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name(default_name)
+                    .add_filter("mp4", &["mp4"])
+                    .save_file()
+                {
+                    self.export_request = Some(path);
+                    self.export_status = "экспортирую…".to_owned();
+                }
+            }
+            if !self.export_status.is_empty() {
+                ui.label(&self.export_status);
+            }
         });
 
         egui::TopBottomPanel::bottom("timeline").min_height(86.0).show(ctx, |ui| {
@@ -437,6 +463,22 @@ impl eframe::App for AutomatchApp {
                 }
             }
         });
+
+        // ---- run a requested export (here frame.gl() is available) ----
+        if let Some(out) = self.export_request.take() {
+            let src_fps = self.player.as_ref().map(|p| (p.src.clone(), p.fps));
+            let mut status = "экспорт пропущен (нет GL/видео/цепочки)".to_owned();
+            if let (Some((src, fps)), Some(gl), Some(chain)) =
+                (src_fps, frame.gl(), self.chain.as_mut())
+            {
+                let ff = media::ffmpeg_path();
+                status = match unsafe { export::export_clip(gl, &ff, &src, &out, chain, fps) } {
+                    Ok(n) => format!("✓ {n} кадров → {}", out.display()),
+                    Err(e) => format!("ошибка экспорта: {e}"),
+                };
+            }
+            self.export_status = status;
+        }
 
         ctx.request_repaint();
     }
