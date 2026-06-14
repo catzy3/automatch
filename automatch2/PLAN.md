@@ -11,16 +11,16 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 6 — В РАБОТЕ** (ModMatrix ✓) |
-| Шаг | C6 инкремент: `modmatrix` (LFO sine/tri/saw/square + маршруты→параметры) готов и подключён демо-тумблером (LFO-пульс chroma). Осталось: файл-пикер, egui-док, node-graph, таймлайн-волна, ретро-тема |
-| Последнее проверено (verified) | **9 selftest'ов PASS** (добавлен **AUDIO-FILE**: реальный ffmpeg-WAV → `decode_pcm` → analyze → bpm 123). Кнопки «Загрузить видео/аудио» (rfd) работают; аудио-анализ показывает BPM/биты/cuts. Сборка чистая |
+| Фаза | **Phase 6 почти весь готов + Phase 7 идёт** (10 эффектов) |
+| Шаг | Готово: файл-пикеры (видео+аудио), аудио-анализ+таймлайн-полоса, ModMatrix, экспорт MP4, ретро-тема, selftest-гейтинг. Эффектов в реестре: **10** (rgb_split, wave_warp, chroma_aberration, crt_scanlines, vhs, shockwave, pixel_stretch, kaleidoscope, halftone, scan_glitch) |
+| Последнее проверено (verified) | `EFFECTS SELFTEST: PASS` — все 10 шейдеров компилятся на GPU. С `AM2_SELFTEST=1` — 9/9 selftest'ов зелёные; экспорт даёт реальный h264 640x360 6s. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио, ✓ тема, ✓ таймлайн, ✓ экспорт, ✓ selftest-гейтинг (`AM2_SELFTEST`). Осталось: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). Параллельно Phase 7: ещё эффекты (kaleidoscope, halftone, scan-glitch, потом feedback-инфра → echo/Droste, оптик-флоу мош) |
 | Блокеры | нет |
 | Последний чекпоинт-коммит | `9d7d302` (+3 эффекта, итого 10) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▰▰▰▰▱▱▱▱ 6/10 (C0–C5) + Phase 6 начат (ModMatrix)
+**Прогресс по фазам:** ▰▰▰▰▰▰▰▱▱▱ ~6.5/10 (C0–C5 + Phase 6 почти весь + 10 эффектов из Phase 7)
 
 > Авто-цикл `automatch2-progress-checkin` переведён на **3ч** (по `/loop 3h`). Один цикл, не два —
 > чтобы не было гонки на git push. Он читает этот §0 и двигает Phase 6 дальше.
