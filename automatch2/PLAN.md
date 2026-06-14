@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | 8 selftest'ов PASS (добавлен **MODMATRIX**: LFO-формы + суммирование маршрутов). Демо-тумблер пульсирует chroma через LFO. Сборка чистая |
 | Следующее действие | Phase 6 продолжение: (1) ✓ файл-пикер `rfd` сделан; (2) egui dockspace + панель параметров эффектов; (3) таймлайн с волной/битами + интеграция `audio::analyze`+`timeline::build_timeline` на загруженном видео; (4) node-graph (egui_node_graph); (5) ретро-глитч тема |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `43047d2` (ModMatrix) |
+| Последний чекпоинт-коммит | `b3351fb` (файл-пикер) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
