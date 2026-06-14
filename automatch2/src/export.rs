@@ -94,6 +94,58 @@ pub unsafe fn export_clip(
     Ok(n)
 }
 
+/// Beat pulse (0..1) at time `t` from a beat grid — matches the live preview.
+fn beat_at(beats: &[f32], dur: f32, t: f32) -> f32 {
+    if beats.is_empty() || dur <= 0.0 {
+        return 0.0;
+    }
+    let pt = t % dur;
+    let mut last = -1.0f32;
+    for &b in beats {
+        if b <= pt {
+            last = b;
+        } else {
+            break;
+        }
+    }
+    if last < 0.0 {
+        0.0
+    } else {
+        (-6.0 * (pt - last)).exp()
+    }
+}
+
+/// Render a whole montage (clip pool + timeline) through the effect chain and
+/// encode it — the full auto-editor output. `beats` drives beat-reactive
+/// effects so the file matches the preview. Returns frames written.
+pub unsafe fn export_montage(
+    gl: &glow::Context,
+    ffmpeg: &Path,
+    mont: &mut crate::montage::MontageFrameSource,
+    out: &Path,
+    chain: &mut EffectChain,
+    fps: f32,
+    duration: f32,
+    beats: &[f32],
+) -> Result<u64, String> {
+    let (w, h) = mont.canvas();
+    let mut enc = Encoder::new(ffmpeg, out, w, h, fps)?;
+    let mut buf = Vec::new();
+    let total = (duration * fps.max(1.0)) as u64;
+    let mut n = 0u64;
+    for f in 0..total {
+        let t = f as f32 / fps.max(1.0);
+        if mont.frame_at(t, &mut buf) {
+            chain.set_beat(beat_at(beats, duration, t));
+            let processed = chain.process(gl, &buf, w, h, t)?;
+            enc.write_frame(&processed)?;
+            n += 1;
+        }
+    }
+    enc.finish()?;
+    Ok(n)
+}
+
 /// Headless end-to-end export check: generate a clip → decode → effect chain →
 /// encode mp4 → re-decode the result and confirm it's a valid video.
 pub fn selftest(gl: &glow::Context) -> Result<String, String> {

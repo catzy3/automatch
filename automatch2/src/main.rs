@@ -147,6 +147,9 @@ struct AutomatchApp {
     mod_demo: bool,
     export_request: Option<PathBuf>,
     export_status: String,
+    // (clip pool, cuts, duration, beats) — set when a montage folder is loaded,
+    // so export can build a fresh frame source.
+    montage_plan: Option<(montage::ClipPool, Vec<timeline::Cut>, f32, Vec<f32>)>,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -295,24 +298,25 @@ impl AutomatchApp {
         };
 
         // AM2_MONTAGE_DIR=<folder> boots straight into montage mode (also the
-        // headless check of the montage player path); otherwise the demo clip.
-        let player = if let Ok(dir) = std::env::var("AM2_MONTAGE_DIR") {
+        // headless check of the montage player + export path); else the demo clip.
+        let (player, montage_plan) = if let Ok(dir) = std::env::var("AM2_MONTAGE_DIR") {
             let pool = montage::ClipPool::from_folder(&PathBuf::from(&dir));
             if pool.is_empty() {
                 eprintln!("MONTAGE PLAYER: no clips in {dir}");
-                None
+                (None, None)
             } else {
                 let dur = 4.0f32;
                 let beats: Vec<f32> = (0..8).map(|k| k as f32 * 0.5).collect();
                 let cuts = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
                 eprintln!("MONTAGE PLAYER: {} clips, {} cuts", pool.len(), cuts.len());
+                let plan = (pool.clone(), cuts.clone(), dur, beats.clone());
                 let mont = montage::MontageFrameSource::new(pool, cuts);
-                Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0))
+                (Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0)), Some(plan))
             }
         } else {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
-            match media::generate_test_clip(&ffmpeg, &demo, 640, 360, 6.0)
+            let p = match media::generate_test_clip(&ffmpeg, &demo, 640, 360, 6.0)
                 .and_then(|_| Player::open(ffmpeg, demo, 30.0))
             {
                 Ok(p) => Some(p),
@@ -320,7 +324,8 @@ impl AutomatchApp {
                     eprintln!("DEMO PLAYER: {e}");
                     None
                 }
-            }
+            };
+            (p, None)
         };
 
         Self {
@@ -351,6 +356,7 @@ impl AutomatchApp {
             // (headless verification of the update-loop export path).
             export_request: std::env::var("AM2_AUTOEXPORT").ok().map(PathBuf::from),
             export_status: String::new(),
+            montage_plan,
             player,
             chain,
             video_tex: None,
@@ -482,6 +488,8 @@ impl eframe::App for AutomatchApp {
                         };
                         let cuts = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
                         let n = pool.len();
+                        self.montage_plan =
+                            Some((pool.clone(), cuts.clone(), dur, beats.clone()));
                         let mont = montage::MontageFrameSource::new(pool, cuts);
                         self.player =
                             Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
@@ -618,15 +626,28 @@ impl eframe::App for AutomatchApp {
 
         // ---- run a requested export (here frame.gl() is available) ----
         if let Some(out) = self.export_request.take() {
+            let ff = media::ffmpeg_path();
+            let mut status = "экспорт пропущен (нет GL/цепочки)".to_owned();
+            let plan = self.montage_plan.clone();
             let src_fps = self.player.as_ref().map(|p| (p.src.clone(), p.fps));
-            let mut status = "экспорт пропущен (нет GL/видео/цепочки)".to_owned();
-            if let (Some((src, fps)), Some(gl), Some(chain)) =
-                (src_fps, frame.gl(), self.chain.as_mut())
-            {
-                let ff = media::ffmpeg_path();
-                status = match unsafe { export::export_clip(gl, &ff, &src, &out, chain, fps) } {
-                    Ok(n) => format!("✓ {n} кадров → {}", out.display()),
-                    Err(e) => format!("ошибка экспорта: {e}"),
+            if let (Some(gl), Some(chain)) = (frame.gl(), self.chain.as_mut()) {
+                status = if let Some((pool, cuts, dur, beats)) = plan {
+                    // ── full montage export ──
+                    let mut mont = montage::MontageFrameSource::new(pool, cuts);
+                    match unsafe {
+                        export::export_montage(gl, &ff, &mut mont, &out, chain, 30.0, dur, &beats)
+                    } {
+                        Ok(n) => format!("✓ монтаж {n} кадров → {}", out.display()),
+                        Err(e) => format!("ошибка монтажа: {e}"),
+                    }
+                } else if let Some((src, fps)) = src_fps {
+                    // ── single-clip export ──
+                    match unsafe { export::export_clip(gl, &ff, &src, &out, chain, fps) } {
+                        Ok(n) => format!("✓ {n} кадров → {}", out.display()),
+                        Err(e) => format!("ошибка экспорта: {e}"),
+                    }
+                } else {
+                    "нет источника".to_owned()
                 };
             }
             self.export_status = status;

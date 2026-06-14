@@ -9,7 +9,7 @@
 
 #![allow(dead_code)]
 
-use crate::media::{ffmpeg_path, VideoReader};
+use crate::media::{ffmpeg_path, probe_dimensions, VideoReader};
 use crate::timeline::Cut;
 use std::path::{Path, PathBuf};
 
@@ -59,23 +59,37 @@ pub struct MontageFrameSource {
     ffmpeg: PathBuf,
     pool: ClipPool,
     cuts: Vec<Cut>,
+    canvas: (i32, i32), // uniform output size every clip is scaled to
     cur_cut: usize,
     reader: Option<VideoReader>,
 }
 
 impl MontageFrameSource {
     pub fn new(pool: ClipPool, cuts: Vec<Cut>) -> Self {
+        let ffmpeg = ffmpeg_path();
+        // canvas = first clip's native size (even dims), else a sane default
+        let canvas = pool
+            .paths
+            .first()
+            .and_then(|p| probe_dimensions(&ffmpeg, p).ok())
+            .map(|(w, h)| (w / 2 * 2, h / 2 * 2))
+            .unwrap_or((1280, 720));
         Self {
-            ffmpeg: ffmpeg_path(),
+            ffmpeg,
             pool,
             cuts,
+            canvas,
             cur_cut: usize::MAX,
             reader: None,
         }
     }
 
+    pub fn canvas(&self) -> (i32, i32) {
+        self.canvas
+    }
+
     pub fn dimensions(&self) -> Option<(i32, i32)> {
-        self.reader.as_ref().map(|r| (r.w, r.h))
+        Some(self.canvas)
     }
 
     fn cut_index_for(&self, t: f32) -> usize {
@@ -94,7 +108,9 @@ impl MontageFrameSource {
             return;
         }
         let clip_idx = self.cuts[ci].clip_idx % self.pool.len();
-        self.reader = VideoReader::open(&self.ffmpeg, &self.pool.paths[clip_idx]).ok();
+        let (w, h) = self.canvas;
+        self.reader =
+            VideoReader::open_scaled(&self.ffmpeg, &self.pool.paths[clip_idx], w, h).ok();
     }
 
     /// Decode the next frame for playback time `t` into `buf`. Switches clips on

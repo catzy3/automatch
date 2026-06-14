@@ -112,6 +112,28 @@ impl VideoReader {
         })
     }
 
+    /// Open a clip but scale every frame to a fixed `w`×`h` canvas (so a montage
+    /// of differently-sized clips yields uniform frames). No probe needed.
+    pub fn open_scaled(ffmpeg: &Path, file: &Path, w: i32, h: i32) -> Result<Self, String> {
+        let mut child = Command::new(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(file)
+            .args(["-vf", &format!("scale={w}:{h}"),
+                   "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn ffmpeg failed: {e}"))?;
+        let stdout = child.stdout.take().ok_or_else(|| "no ffmpeg stdout".to_owned())?;
+        Ok(Self {
+            child,
+            stdout: std::io::BufReader::new(stdout),
+            w,
+            h,
+            frame_bytes: (w as usize) * (h as usize) * 4,
+        })
+    }
+
     pub fn frame_bytes(&self) -> usize {
         self.frame_bytes
     }
