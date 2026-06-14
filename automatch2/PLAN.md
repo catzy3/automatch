@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | EFFECTS+FEEDBACK+**TIMEDISP** PASS (time_displacement: row0 G=252 / row7 G=72, точная задержка по строке через 2D-array историю). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
 | Следующее действие | Осталось по UI: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). По эффектам: оптик-флоу мош (GLSL flow-оценка по 2 кадрам истории), beat-stutter/strobe (по audio.beats), light-leaks/анаморф, neon-edge |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `0c8e053` (будет обновлён) |
+| Последний чекпоинт-коммит | `c8d07bb` (time_displacement, 13 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
