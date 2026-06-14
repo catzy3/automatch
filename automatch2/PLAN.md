@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | **9 selftest'ов PASS** (добавлен **AUDIO-FILE**: реальный ffmpeg-WAV → `decode_pcm` → analyze → bpm 123). Кнопки «Загрузить видео/аудио» (rfd) работают; аудио-анализ показывает BPM/биты/cuts. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио, ✓ тема, ✓ таймлайн, ✓ экспорт, ✓ selftest-гейтинг (`AM2_SELFTEST`). Осталось: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). Параллельно Phase 7: ещё эффекты (kaleidoscope, halftone, scan-glitch, потом feedback-инфра → echo/Droste, оптик-флоу мош) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `6aee05d` (selftest-гейтинг) |
+| Последний чекпоинт-коммит | `f5f46a9` (selftest-гейтинг) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
@@ -304,9 +304,9 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - [ ] Time displacement · [ ] Echo-трейлы · [ ] Beat-stutter/strobe · [ ] Feedback-zoom Droste
 - [x] Хром. дисперсия (`chroma_aberration`) · [ ] Light leaks/анаморф · [ ] Tilt-shift(depth)
 - [x] Wave-warp (`wave_warp`) · [ ] Liquify(audio) · [ ] Rolling shutter · [x] Shockwave-ripple (`shockwave`)
-- [x] VHS (база, `vhs`) · [x] CRT (`crt_scanlines`) · [ ] Broadcast signal loss · [x] RGB-split (`rgb_split`)
-- [ ] Калейдоскоп(порт) · [ ] Droste/фрактал-feedback
-- [ ] Neon edge · [ ] Halftone · [ ] ASCII(порт)
+- [x] VHS (база, `vhs`) · [x] CRT (`crt_scanlines`) · [x] Broadcast signal loss (`scan_glitch`) · [x] RGB-split (`rgb_split`)
+- [x] Калейдоскоп (`kaleidoscope`) · [ ] Droste/фрактал-feedback
+- [ ] Neon edge · [x] Halftone (`halftone`) · [ ] ASCII(порт)
 - [ ] Depth-parallax · [ ] Анаглиф · [ ] Depth-gated глитч
 - [ ] RGB-shake/zoom-punch · [ ] Spectrum warp · [ ] Зерно/пыль/царапины
 
@@ -332,6 +332,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
 - 2026-06-14 — **C5 экспорт-ядро ГОТОВО.** `src/export.rs`: `Encoder` (ffmpeg `-f rawvideo -pix_fmt rgba` stdin → libx264 mp4), `export_clip` (декод→цепочка→кодирование), `selftest` (клип→экспорт→переоткрытие). Verify: `EXPORT SELFTEST: PASS` — 30 кадров закодировано, результат переоткрыт 160x90.
+- 2026-06-14 — **Phase 7: +3 эффекта (итого 10).** `kaleidoscope` (n-кратное зеркало с вращением), `halftone` (растровые точки, цвет сохраняется), `scan_glitch` (рваные горизонтальные полосы + RGB-десинк = сигнальный тир). Verify: `EFFECTS SELFTEST: PASS` без ошибок компиляции (все 10 шейдеров собрались на GPU). Эффекты: rgb_split, wave_warp, chroma_aberration, crt_scanlines, vhs, shockwave, pixel_stretch, kaleidoscope, halftone, scan_glitch.
 - 2026-06-14 — **Гигиена: selftest-гейтинг.** Дорогие ffmpeg-selftest'ы (media/audio-file/export/datamosh) теперь только при `AM2_SELFTEST` (флаг `run_st` в `new()`); дешёвые CPU/GL (gfx/effects/audio/timeline/modmatrix) всегда. Старт по умолчанию без ffmpeg-задержки. Verify: без флага — 5 selftest-строк, с `AM2_SELFTEST=1` — 9, без FAIL/паник.
 - 2026-06-14 — **Phase 7-превью: +3 эффекта.** `shaders/vhs.frag` (jitter+chroma bleed+scanlines+tape noise), `shockwave.frag` (радиальная рябь с аспект-коррекцией), `pixel_stretch.frag` (протяжка seed-столбца — датамош-смаз). Зарегистрированы в `builtin()`; авто-появляются в UI. Итого 7 featured-эффектов, все разноплановые (warp/дисперсия/CRT/VHS/ripple/stretch), без «квадратиков». Verify: `EFFECTS SELFTEST: PASS` без ошибок компиляции (selftest строит цепочку = компилит все шейдеры на GPU); окно 11с без паник.
 - 2026-06-14 — **Phase 6: кнопка «Экспорт MP4» ГОТОВА.** В `main.rs` кнопка «⬇ Экспорт MP4…» (rfd save-dialog) ставит `export_request`; после панелей (где доступен `frame.gl()`) выполняется `export::export_clip` на загруженном видео + текущей цепочке, статус в панели. Добавлен env `AM2_AUTOEXPORT=<path>` — одноразовый авто-экспорт на первом кадре для headless-проверки. Verify: запуск с AM2_AUTOEXPORT → реальный mp4 **640x360, 6.00s, h264** (демо прогнан через цепочку из update-цикла). Сборка чистая.
