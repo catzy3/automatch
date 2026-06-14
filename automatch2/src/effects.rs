@@ -56,6 +56,7 @@ fn builtin() -> Vec<(&'static str, &'static str)> {
         ("optic_flow_mosh", include_str!("../shaders/optic_flow_mosh.frag")),
         ("neon_edge", include_str!("../shaders/neon_edge.frag")),
         ("light_leaks", include_str!("../shaders/light_leaks.frag")),
+        ("beat_punch", include_str!("../shaders/beat_punch.frag")),
         ("_invert", include_str!("../shaders/_invert.frag")),
     ]
 }
@@ -67,6 +68,7 @@ pub struct EffectChain {
     feedback_tex: Option<glow::Texture>, // previous chain output (u_prev)
     history_tex: Option<glow::Texture>,  // 2D-array ring of recent inputs (u_history)
     history_head: i32,                   // next write slot
+    beat: f32,                           // 0..1 beat pulse → u_beat
     size: (i32, i32),
     pub effects: Vec<Effect>,
 }
@@ -88,9 +90,15 @@ impl EffectChain {
             feedback_tex: None,
             history_tex: None,
             history_head: 0,
+            beat: 0.0,
             size: (0, 0),
             effects,
         })
+    }
+
+    /// Set the current beat pulse (0..1) fed to effects as u_beat.
+    pub fn set_beat(&mut self, beat: f32) {
+        self.beat = beat.clamp(0.0, 1.0);
     }
 
     /// Enable an effect by name with a given mix (others untouched).
@@ -217,6 +225,7 @@ impl EffectChain {
                 eff.prog.set_i32(gl, "u_history", 2);
                 eff.prog.set_i32(gl, "u_history_n", HISTORY_N);
                 eff.prog.set_i32(gl, "u_history_head", self.history_head);
+                eff.prog.set_f32(gl, "u_beat", self.beat); // skipped if undeclared
                 eff.prog.set_f32(gl, "u_mix", eff.mix);
                 eff.prog.set_f32(gl, "u_time", time);
                 eff.prog.set_vec2(gl, "u_resolution", w as f32, h as f32);
@@ -377,6 +386,35 @@ pub fn selftest_flow(gl: &glow::Context) -> Result<String, String> {
             Ok(format!("stable over 6 frames, range {mn}..{mx}, altered=yes"))
         } else {
             Err(format!("changed={changed}, range {mn}..{mx}"))
+        }
+    }
+}
+
+/// Headless check of beat reactivity: the same gray frame must come out
+/// brighter at beat=1 (flash) than at beat=0 — proving u_beat reaches effects.
+pub fn selftest_beat(gl: &glow::Context) -> Result<String, String> {
+    unsafe {
+        let mut chain = EffectChain::new(gl)?;
+        for e in chain.effects.iter_mut() {
+            e.enabled = e.name == "beat_punch";
+            e.mix = 1.0;
+        }
+        let gray = [128u8, 128, 128, 255];
+        let mut input = Vec::new();
+        for _ in 0..4 {
+            input.extend_from_slice(&gray);
+        }
+        chain.set_beat(0.0);
+        let o0 = chain.process(gl, &input, 2, 2, 0.0)?;
+        chain.set_beat(1.0);
+        let o1 = chain.process(gl, &input, 2, 2, 0.0)?;
+        let g0 = o0[1] as i32;
+        let g1 = o1[1] as i32;
+        chain.destroy(gl);
+        if g1 > g0 + 30 {
+            Ok(format!("beat0 G={g0} → beat1 G={g1} (flash works)"))
+        } else {
+            Err(format!("beat0 G={g0}, beat1 G={g1} (no reactivity)"))
         }
     }
 }

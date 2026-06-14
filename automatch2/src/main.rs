@@ -160,6 +160,10 @@ impl AutomatchApp {
                     Ok(d) => eprintln!("FLOWMOSH SELFTEST: PASS — {d}"),
                     Err(e) => eprintln!("FLOWMOSH SELFTEST: FAIL — {e}"),
                 }
+                match effects::selftest_beat(gl) {
+                    Ok(d) => eprintln!("BEAT SELFTEST: PASS — {d}"),
+                    Err(e) => eprintln!("BEAT SELFTEST: FAIL — {e}"),
+                }
                 let chain = unsafe { effects::EffectChain::new(gl) }
                     .map(|mut c| {
                         // a tasteful default look on the demo clip
@@ -307,8 +311,25 @@ impl eframe::App for AutomatchApp {
                 } else {
                     None
                 };
+                // beat pulse from loaded audio analysis + playback time
+                let beat = self.analysis.as_ref().map_or(0.0, |a| {
+                    if a.duration <= 0.0 || a.beats.is_empty() {
+                        return 0.0;
+                    }
+                    let pt = (p.frame_idx as f32 / p.fps) % a.duration;
+                    let mut last = -1.0f32;
+                    for &b in &a.beats {
+                        if b <= pt {
+                            last = b;
+                        } else {
+                            break;
+                        }
+                    }
+                    if last < 0.0 { 0.0 } else { (-6.0 * (pt - last)).exp() }
+                });
                 let processed: Option<Vec<u8>> = match (frame.gl(), self.chain.as_mut()) {
                     (Some(gl), Some(chain)) => {
+                        chain.set_beat(beat);
                         if let Some(mx) = mod_chroma {
                             chain.set("chroma_aberration", true, mx);
                         }
