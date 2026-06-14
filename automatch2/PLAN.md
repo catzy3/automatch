@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | EFFECTS+FEEDBACK+TIMEDISP+FLOWMOSH+**BEAT** PASS (beat0 G=128→beat1 G=205, вспышка точна). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
 | Следующее действие | **Крупное: монтажный движок** (папка клипов → ClipPool → нарезка по `timeline::build_timeline` с переходами — ядро авто-редактора, ещё не перенесено). Плюс: egui dockspace, node-graph, глубокие параметры эффектов/пресеты |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `5d6c751` (будет обновлён) |
+| Последний чекпоинт-коммит | `fb482a8` (beat-sync, 17 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
