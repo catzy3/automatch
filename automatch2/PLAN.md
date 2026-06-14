@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | **MONTAGE SELFTEST: PASS** — 2 клипа red/blue + чередующийся таймлайн → кадры [blue,red,blue,red] меняются cut-к-cut. Все остальные selftest'ы тоже зелёные. Сборка чистая |
 | Следующее действие | Дотянуть монтаж до живого использования: (1) кнопка «📁 Папка клипов» → `ClipPool::from_folder` + `MontageFrameSource` как источник плеера (вместо демо); (2) random in-points (`-ss`); (3) переходы на склейках (crossfade). Затем: egui dockspace, глубокие параметры/пресеты |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `fb482a8` (будет обновлён) |
+| Последний чекпоинт-коммит | `a6449fb` (монтаж: ClipPool + переключение) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
