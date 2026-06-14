@@ -17,6 +17,7 @@ mod effects;
 mod export;
 mod gfx;
 mod media;
+mod modmatrix;
 mod timeline;
 
 /// Minimal video player: decodes frames on the main thread, paced by wall clock,
@@ -90,6 +91,10 @@ struct AutomatchApp {
     export_ok: bool,
     datamosh_selftest: String,
     datamosh_ok: bool,
+    modmatrix_selftest: String,
+    modmatrix_ok: bool,
+    modmatrix: modmatrix::ModMatrix,
+    mod_demo: bool,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -166,6 +171,22 @@ impl AutomatchApp {
         };
         eprintln!("DATAMOSH SELFTEST: {datamosh_selftest}");
 
+        let (modmatrix_selftest, modmatrix_ok) = match modmatrix::selftest() {
+            Ok(d) => (format!("PASS — {d}"), true),
+            Err(e) => (format!("FAIL — {e}"), false),
+        };
+        eprintln!("MODMATRIX SELFTEST: {modmatrix_selftest}");
+
+        // demo matrix: a slow sine pulsing the chroma aberration mix
+        let modmatrix = modmatrix::ModMatrix {
+            lfos: vec![modmatrix::Lfo::new(modmatrix::Wave::Sine, 0.4)],
+            routes: vec![modmatrix::Route {
+                lfo: 0,
+                target: "chroma_aberration".into(),
+                amount: 0.4,
+            }],
+        };
+
         let player = {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
@@ -196,6 +217,10 @@ impl AutomatchApp {
             export_ok,
             datamosh_selftest,
             datamosh_ok,
+            modmatrix_selftest,
+            modmatrix_ok,
+            modmatrix,
+            mod_demo: false,
             player,
             chain,
             video_tex: None,
@@ -216,8 +241,21 @@ impl eframe::App for AutomatchApp {
             if let Some(p) = self.player.as_ref() {
                 let w = p.size[0] as i32;
                 let h = p.size[1] as i32;
+                // ModMatrix demo: drive chroma mix with the LFO this frame
+                let mod_chroma = if self.mod_demo {
+                    self.modmatrix
+                        .value_for("chroma_aberration", time)
+                        .map(|m| (0.6 + m).clamp(0.0, 1.0))
+                } else {
+                    None
+                };
                 let processed: Option<Vec<u8>> = match (frame.gl(), self.chain.as_mut()) {
-                    (Some(gl), Some(chain)) => unsafe { chain.process(gl, &p.buf, w, h, time).ok() },
+                    (Some(gl), Some(chain)) => {
+                        if let Some(mx) = mod_chroma {
+                            chain.set("chroma_aberration", true, mx);
+                        }
+                        unsafe { chain.process(gl, &p.buf, w, h, time).ok() }
+                    }
                     _ => None,
                 };
                 let data = processed.unwrap_or_else(|| p.buf.clone());
@@ -254,6 +292,9 @@ impl eframe::App for AutomatchApp {
             ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
             ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
             ui.colored_label(c(self.datamosh_ok), format!("DATAMOSH: {}", self.datamosh_selftest));
+            ui.colored_label(c(self.modmatrix_ok), format!("MODMATRIX: {}", self.modmatrix_selftest));
+            ui.separator();
+            ui.checkbox(&mut self.mod_demo, "ModMatrix демо: LFO-пульс chroma");
             ui.separator();
 
             ui.strong("Цепочка эффектов");

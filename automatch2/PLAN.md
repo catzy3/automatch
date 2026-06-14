@@ -11,16 +11,19 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 5 — ЗАВЕРШЕНА** → начинаем Phase 6 |
-| Шаг | C5 готов целиком: `export` (Encoder→ffmpeg→mp4, `export_clip`) + `datamosh` (нативный битстрим-мош на Rust: bloom/smear/fine-scale) |
-| Последнее проверено (verified) | 7 selftest'ов PASS: GFX, MEDIA, EFFECTS, AUDIO, TIMELINE, EXPORT, **DATAMOSH** (frames 60→99 после байт-правки movi, выход декодируется 160x90). Сборка чистая |
-| Следующее действие | Phase 6 — UI overhaul: egui-док (Viewport/Node-graph/Timeline/Параметры/Пресеты), ретро-глитч тема, ModMatrix (LFO+аудио→параметры); файл-пикер вместо демо-клипа |
+| Фаза | **Phase 6 — В РАБОТЕ** (ModMatrix ✓) |
+| Шаг | C6 инкремент: `modmatrix` (LFO sine/tri/saw/square + маршруты→параметры) готов и подключён демо-тумблером (LFO-пульс chroma). Осталось: файл-пикер, egui-док, node-graph, таймлайн-волна, ретро-тема |
+| Последнее проверено (verified) | 8 selftest'ов PASS (добавлен **MODMATRIX**: LFO-формы + суммирование маршрутов). Демо-тумблер пульсирует chroma через LFO. Сборка чистая |
+| Следующее действие | Phase 6 продолжение: (1) файл-пикер `rfd` для своего видео/аудио вместо демо; (2) egui dockspace + панель параметров эффектов; (3) таймлайн с волной/битами; (4) node-graph (egui_node_graph); (5) ретро-глитч тема |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | _обновится после push C5.1_ |
+| Последний чекпоинт-коммит | _обновится после push C6-mod_ |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▰▰▰▰▱▱▱▱ 6/10 (C0–C5)
+**Прогресс по фазам:** ▰▰▰▰▰▰▱▱▱▱ 6/10 (C0–C5) + Phase 6 начат (ModMatrix)
+
+> Авто-цикл `automatch2-progress-checkin` переведён на **3ч** (по `/loop 3h`). Один цикл, не два —
+> чтобы не было гонки на git push. Он читает этот §0 и двигает Phase 6 дальше.
 
 > ModMatrix (LFO+аудио→параметры) перенесён в Phase 6 (UI), чтобы C4 остался сфокусирован на
 > проверяемом ядре beat-sync. BPM-детект — энергетический; spectral-flux/aubio-апгрейд для
@@ -329,6 +332,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
 - 2026-06-14 — **C5 экспорт-ядро ГОТОВО.** `src/export.rs`: `Encoder` (ffmpeg `-f rawvideo -pix_fmt rgba` stdin → libx264 mp4), `export_clip` (декод→цепочка→кодирование), `selftest` (клип→экспорт→переоткрытие). Verify: `EXPORT SELFTEST: PASS` — 30 кадров закодировано, результат переоткрыт 160x90.
+- 2026-06-14 — **Phase 6 начат: ModMatrix ГОТОВ.** `src/modmatrix.rs`: `Lfo` (sine/triangle/saw/square, freq/depth/bias/phase, `value(t)`), `Route` (lfo→target×amount), `ModMatrix::value_for` (сумма маршрутов). В `main.rs` — демо-тумблер «LFO-пульс chroma» (off по умолчанию, не мешает слайдерам). Verify: `MODMATRIX SELFTEST: PASS` (sine(0)=0, sine(.25)=1, saw/square формы, сумма маршрутов 0.25). 8/8 selftest'ов зелёные. Авто-цикл переведён на 3ч (по /loop). Осталось по Phase 6: файл-пикер, dockspace, node-graph, таймлайн, тема.
 - 2026-06-14 — **C5.1 нативный датамош ГОТОВ (Phase 5 закрыт).** `src/datamosh.rs`: порт `datamosh_bitstream.py` на Rust — ffmpeg→MPEG-4 ASP AVI (`-bf 0`, `-g`), парсинг `movi`-чанков, тип VOP по старт-коду `000001B6`, `apply_mosh` (drop I / дубль P, xorshift-seed), `rebuild_avi` (патч RIFF+movi размеров, drop idx1), обратно в mp4 с PTS-рескейлом и fine-scale. Verify: `DATAMOSH SELFTEST: PASS` — frames 60→99 после байт-правки, выход декодируется 160x90. Все 7 selftest'ов зелёные.
 - 2026-06-14 — **C4 (Phase 4) ГОТОВ.** `src/audio.rs`: `decode_pcm` (ffmpeg f32le mono), `onset_envelope` (энергия, half-wave), `estimate_bpm` (автокорреляция + сглаживание + octave-коррекция к быстрому темпу), `beat_times` (фаза-выравнивание сетки), `analyze`. `src/timeline.rs`: `build_timeline` (cuts из битов×cuts_per_beat, xorshift-детерминизм, без повтора подряд). Баг: первый BPM-детект давал 60 вместо 120 (octave-error) — корень: нецелый период (21.5 кадра) + ошибочный bias к медленному; фикс — сглаживание огибающей + octave-коррекция вниз по лагу. Verify: AUDIO PASS (клик 120→123, 13 битов), TIMELINE PASS (12 cuts, детерминизм, ends@6.0s).
 - 2026-06-14 — **C3 (Phase 3) ГОТОВ.** `shaders/`: `rgb_split`, `wave_warp`, `chroma_aberration`, `crt_scanlines` (+ служебный `_invert`), общий контракт юниформов. `src/effects.rs`: `Effect` (prog/enabled/mix), `EffectChain` (ping-pong, upload→цепочка→readback), реестр через `include_str!`. В `main.rs` плеер прогоняет кадр через цепочку (gl из `frame.gl()`), тумблеры+mix в панели, дефолт chroma+CRT. Verify: `EFFECTS SELFTEST: PASS` (invert через цепочку (10,150,240)→(245,105,15)); три selftest'а зелёные, окно 8с с живым превью.
