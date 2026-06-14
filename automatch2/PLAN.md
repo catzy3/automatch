@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | `EFFECTS PASS` (12 шейдеров компилятся) + **`FEEDBACK SELFTEST: PASS`** (трейл 200→184 сохраняется между кадрами через feedback_tex — persistence доказана). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио, ✓ тема, ✓ таймлайн, ✓ экспорт, ✓ selftest-гейтинг (`AM2_SELFTEST`). Осталось: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). Параллельно Phase 7: ещё эффекты (kaleidoscope, halftone, scan-glitch, потом feedback-инфра → echo/Droste, оптик-флоу мош) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `9d7d302` (+3 эффекта, итого 10) |
+| Последний чекпоинт-коммит | `0c8e053` (feedback-инфра + 12 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
