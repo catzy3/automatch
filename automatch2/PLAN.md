@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | 4 GL-selftest'а PASS: EFFECTS, FEEDBACK, TIMEDISP, **FLOWMOSH** (оптик-флоу мош стабилен 6 кадров, кадр изменён). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
 | Следующее действие | По UI: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`); (3) визуальная докрутка optic_flow_mosh вживую. По эффектам: beat-stutter/strobe (по audio.beats), light-leaks/анаморф, neon-edge |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `c8d07bb` (будет обновлён) |
+| Последний чекпоинт-коммит | `ed62368` (optic_flow_mosh, 14 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
