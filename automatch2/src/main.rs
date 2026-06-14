@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 mod audio;
+mod datamosh;
 mod effects;
 mod export;
 mod gfx;
@@ -87,6 +88,8 @@ struct AutomatchApp {
     timeline_ok: bool,
     export_selftest: String,
     export_ok: bool,
+    datamosh_selftest: String,
+    datamosh_ok: bool,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -157,6 +160,12 @@ impl AutomatchApp {
         };
         eprintln!("EXPORT SELFTEST: {export_selftest}");
 
+        let (datamosh_selftest, datamosh_ok) = match datamosh::selftest() {
+            Ok(d) => (format!("PASS — {d}"), true),
+            Err(e) => (format!("FAIL — {e}"), false),
+        };
+        eprintln!("DATAMOSH SELFTEST: {datamosh_selftest}");
+
         let player = {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
@@ -185,6 +194,8 @@ impl AutomatchApp {
             timeline_ok,
             export_selftest,
             export_ok,
+            datamosh_selftest,
+            datamosh_ok,
             player,
             chain,
             video_tex: None,
@@ -242,6 +253,7 @@ impl eframe::App for AutomatchApp {
             ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
             ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
             ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
+            ui.colored_label(c(self.datamosh_ok), format!("DATAMOSH: {}", self.datamosh_selftest));
             ui.separator();
 
             ui.strong("Цепочка эффектов");
