@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | **9 selftest'ов PASS** (добавлен **AUDIO-FILE**: реальный ffmpeg-WAV → `decode_pcm` → analyze → bpm 123). Кнопки «Загрузить видео/аудио» (rfd) работают; аудио-анализ показывает BPM/биты/cuts. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио-интеграция, ✓ тема, ✓ таймлайн-полоса, ✓ кнопка «Экспорт MP4». Осталось: (1) egui dockspace (`egui_dock`, перетаскиваемые вкладки); (2) node-graph (`egui_node_graph`); (3) спрятать стартовые selftest'ы за `AM2_SELFTEST` debug-флаг (сейчас ~6 ffmpeg-проходов на старте). Потом Phase 7 (виральные эффекты) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | _обновится после push UI-export_ |
+| Последний чекпоинт-коммит | `b47df92` (UI-экспорт) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
@@ -300,11 +300,11 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - [ ] C9 Полировка + v2.0.0
 
 **Эффекты (отмечаем по мере готовности + проверки на реальном видео):**
-- [ ] Битстрим-датамош (native) · [ ] Оптик-флоу мош · [ ] Pixel drag/stretch
+- [x] Битстрим-датамош (native, C5.1) · [ ] Оптик-флоу мош · [x] Pixel drag/stretch (`pixel_stretch`)
 - [ ] Time displacement · [ ] Echo-трейлы · [ ] Beat-stutter/strobe · [ ] Feedback-zoom Droste
-- [ ] Хром. дисперсия · [ ] Light leaks/анаморф · [ ] Tilt-shift(depth)
-- [ ] Flow-field warp · [ ] Liquify(audio) · [ ] Rolling shutter · [ ] Shockwave-ripple
-- [ ] VHS deep · [ ] CRT(порт) · [ ] Broadcast signal loss
+- [x] Хром. дисперсия (`chroma_aberration`) · [ ] Light leaks/анаморф · [ ] Tilt-shift(depth)
+- [x] Wave-warp (`wave_warp`) · [ ] Liquify(audio) · [ ] Rolling shutter · [x] Shockwave-ripple (`shockwave`)
+- [x] VHS (база, `vhs`) · [x] CRT (`crt_scanlines`) · [ ] Broadcast signal loss · [x] RGB-split (`rgb_split`)
 - [ ] Калейдоскоп(порт) · [ ] Droste/фрактал-feedback
 - [ ] Neon edge · [ ] Halftone · [ ] ASCII(порт)
 - [ ] Depth-parallax · [ ] Анаглиф · [ ] Depth-gated глитч
@@ -332,6 +332,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
 - 2026-06-14 — **C5 экспорт-ядро ГОТОВО.** `src/export.rs`: `Encoder` (ffmpeg `-f rawvideo -pix_fmt rgba` stdin → libx264 mp4), `export_clip` (декод→цепочка→кодирование), `selftest` (клип→экспорт→переоткрытие). Verify: `EXPORT SELFTEST: PASS` — 30 кадров закодировано, результат переоткрыт 160x90.
+- 2026-06-14 — **Phase 7-превью: +3 эффекта.** `shaders/vhs.frag` (jitter+chroma bleed+scanlines+tape noise), `shockwave.frag` (радиальная рябь с аспект-коррекцией), `pixel_stretch.frag` (протяжка seed-столбца — датамош-смаз). Зарегистрированы в `builtin()`; авто-появляются в UI. Итого 7 featured-эффектов, все разноплановые (warp/дисперсия/CRT/VHS/ripple/stretch), без «квадратиков». Verify: `EFFECTS SELFTEST: PASS` без ошибок компиляции (selftest строит цепочку = компилит все шейдеры на GPU); окно 11с без паник.
 - 2026-06-14 — **Phase 6: кнопка «Экспорт MP4» ГОТОВА.** В `main.rs` кнопка «⬇ Экспорт MP4…» (rfd save-dialog) ставит `export_request`; после панелей (где доступен `frame.gl()`) выполняется `export::export_clip` на загруженном видео + текущей цепочке, статус в панели. Добавлен env `AM2_AUTOEXPORT=<path>` — одноразовый авто-экспорт на первом кадре для headless-проверки. Verify: запуск с AM2_AUTOEXPORT → реальный mp4 **640x360, 6.00s, h264** (демо прогнан через цепочку из update-цикла). Сборка чистая.
 - 2026-06-14 — **Phase 6: таймлайн-полоса ГОТОВА.** В `AudioAnalysis` добавлено поле `env` (онсет-огибающая). В `main.rs` нижняя панель «Таймлайн»: egui painter рисует огибающую (cyan-столбики) + бит-тики (magenta) на ширину, масштаб по `duration`; плейсхолдер до загрузки аудио. Verify: сборка чистая, 9/9 selftest'ов, окно 12с без паник.
 - 2026-06-14 — **Phase 6: ретро-глитч тема ГОТОВА.** `apply_retro_theme` в `main.rs`: near-black панели, magenta(#ff2e88)/cyan акценты, острые углы (Rounding::ZERO), моноширинный текст везде, hover=cyan/active=magenta обводка. Применяется в `new()` через `cc.egui_ctx`. Verify: сборка чистая, 9/9 selftest'ов, окно 12с без паник.

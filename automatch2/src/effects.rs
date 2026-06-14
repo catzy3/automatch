@@ -44,6 +44,9 @@ fn builtin() -> Vec<(&'static str, &'static str)> {
         ("wave_warp", include_str!("../shaders/wave_warp.frag")),
         ("chroma_aberration", include_str!("../shaders/chroma_aberration.frag")),
         ("crt_scanlines", include_str!("../shaders/crt_scanlines.frag")),
+        ("vhs", include_str!("../shaders/vhs.frag")),
+        ("shockwave", include_str!("../shaders/shockwave.frag")),
+        ("pixel_stretch", include_str!("../shaders/pixel_stretch.frag")),
         ("_invert", include_str!("../shaders/_invert.frag")),
     ]
 }
