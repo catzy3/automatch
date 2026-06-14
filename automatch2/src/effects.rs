@@ -50,6 +50,8 @@ fn builtin() -> Vec<(&'static str, &'static str)> {
         ("kaleidoscope", include_str!("../shaders/kaleidoscope.frag")),
         ("halftone", include_str!("../shaders/halftone.frag")),
         ("scan_glitch", include_str!("../shaders/scan_glitch.frag")),
+        ("echo_trails", include_str!("../shaders/echo_trails.frag")),
+        ("feedback_zoom", include_str!("../shaders/feedback_zoom.frag")),
         ("_invert", include_str!("../shaders/_invert.frag")),
     ]
 }
@@ -58,6 +60,7 @@ pub struct EffectChain {
     quad: Quad,
     pp: Option<PingPong>,
     input_tex: Option<glow::Texture>,
+    feedback_tex: Option<glow::Texture>, // previous chain output (u_prev)
     size: (i32, i32),
     pub effects: Vec<Effect>,
 }
@@ -69,7 +72,7 @@ impl EffectChain {
         for (name, src) in builtin() {
             effects.push(Effect::new(gl, name, src)?);
         }
-        Ok(Self { quad, pp: None, input_tex: None, size: (0, 0), effects })
+        Ok(Self { quad, pp: None, input_tex: None, feedback_tex: None, size: (0, 0), effects })
     }
 
     /// Enable an effect by name with a given mix (others untouched).
@@ -90,7 +93,13 @@ impl EffectChain {
         if let Some(t) = self.input_tex.take() {
             gl.delete_texture(t);
         }
+        if let Some(t) = self.feedback_tex.take() {
+            gl.delete_texture(t);
+        }
         self.input_tex = Some(make_tex_rgba(gl, w, h, None)?);
+        // feedback starts black so the first frame has no ghost
+        let zeros = vec![0u8; (w * h * 4) as usize];
+        self.feedback_tex = Some(make_tex_rgba(gl, w, h, Some(&zeros))?);
         self.pp = Some(PingPong::new(gl, w, h)?);
         self.size = (w, h);
         Ok(())
@@ -136,6 +145,10 @@ impl EffectChain {
         }
 
         gl.disable(glow::BLEND);
+        // previous chain output → unit 1 (u_prev) for the whole pass
+        gl.active_texture(glow::TEXTURE1);
+        gl.bind_texture(glow::TEXTURE_2D, self.feedback_tex);
+        gl.active_texture(glow::TEXTURE0);
         let mut src_tex = itex;
         let mut last_fbo: Option<glow::Framebuffer> = None;
         for &i in &active {
@@ -151,6 +164,7 @@ impl EffectChain {
                 gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(glow::TEXTURE_2D, Some(src_tex));
                 eff.prog.set_i32(gl, "u_tex", 0);
+                eff.prog.set_i32(gl, "u_prev", 1); // feedback (skipped if undeclared)
                 eff.prog.set_f32(gl, "u_mix", eff.mix);
                 eff.prog.set_f32(gl, "u_time", time);
                 eff.prog.set_vec2(gl, "u_resolution", w as f32, h as f32);
@@ -161,8 +175,15 @@ impl EffectChain {
             self.pp.as_mut().unwrap().swap();
         }
 
-        let mut out = vec![0u8; (w * h * 4) as usize];
         gl.bind_framebuffer(glow::FRAMEBUFFER, last_fbo);
+        // persist the final frame into feedback_tex for next call's u_prev
+        if let Some(ft) = self.feedback_tex {
+            gl.active_texture(glow::TEXTURE1);
+            gl.bind_texture(glow::TEXTURE_2D, Some(ft));
+            gl.copy_tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+            gl.active_texture(glow::TEXTURE0);
+        }
+        let mut out = vec![0u8; (w * h * 4) as usize];
         gl.read_pixels(
             0,
             0,
@@ -184,8 +205,45 @@ impl EffectChain {
         if let Some(t) = self.input_tex {
             gl.delete_texture(t);
         }
+        if let Some(t) = self.feedback_tex {
+            gl.delete_texture(t);
+        }
         for e in self.effects {
             e.prog.destroy(gl);
+        }
+    }
+}
+
+/// Headless check of the FEEDBACK path: with `echo_trails`, frame 1 of a green
+/// input should pass through; after feeding a black frame, the trail (prev*0.92)
+/// must persist — proving feedback_tex carries state across process() calls.
+pub fn selftest_feedback(gl: &glow::Context) -> Result<String, String> {
+    unsafe {
+        let mut chain = EffectChain::new(gl)?;
+        for e in chain.effects.iter_mut() {
+            e.enabled = e.name == "echo_trails";
+            e.mix = 1.0;
+        }
+        let green = [0u8, 200, 0, 255];
+        let black = [0u8, 0, 0, 255];
+        let mut in1 = Vec::new();
+        let mut in0 = Vec::new();
+        for _ in 0..4 {
+            in1.extend_from_slice(&green);
+            in0.extend_from_slice(&black);
+        }
+        let out1 = chain.process(gl, &in1, 2, 2, 0.0)?; // prev=black → ~green
+        let out2 = chain.process(gl, &in0, 2, 2, 0.0)?; // prev=green → ~green*0.92
+        let g1 = out1[1] as i32;
+        let g2 = out2[1] as i32;
+        chain.destroy(gl);
+        // frame1 ~200; frame2 is the trail ~184 (must be a strong non-zero ghost)
+        let ok = g1 >= 180 && g2 >= 150 && g2 <= 199;
+        let msg = format!("frame1 G={g1}, trail(frame2 from black) G={g2}");
+        if ok {
+            Ok(msg)
+        } else {
+            Err(msg)
         }
     }
 }

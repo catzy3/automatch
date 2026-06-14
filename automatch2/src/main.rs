@@ -148,6 +148,10 @@ impl AutomatchApp {
                     Err(e) => (format!("FAIL — {e}"), false),
                 };
                 eprintln!("EFFECTS SELFTEST: {msg}");
+                match effects::selftest_feedback(gl) {
+                    Ok(d) => eprintln!("FEEDBACK SELFTEST: PASS — {d}"),
+                    Err(e) => eprintln!("FEEDBACK SELFTEST: FAIL — {e}"),
+                }
                 let chain = unsafe { effects::EffectChain::new(gl) }
                     .map(|mut c| {
                         // a tasteful default look on the demo clip
