@@ -11,16 +11,16 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 6 почти весь готов + Phase 7 идёт** (10 эффектов) |
+| Фаза | **Phase 6 почти весь готов + Phase 7 идёт** (12 эффектов, feedback-класс открыт) |
 | Шаг | Готово: файл-пикеры, аудио-анализ+таймлайн, ModMatrix, экспорт MP4, тема, selftest-гейтинг, **feedback-инфра (u_prev + persist)**. Эффектов: **12** (… + echo_trails, feedback_zoom) |
 | Последнее проверено (verified) | `EFFECTS PASS` (12 шейдеров компилятся) + **`FEEDBACK SELFTEST: PASS`** (трейл 200→184 сохраняется между кадрами через feedback_tex — persistence доказана). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
-| Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио, ✓ тема, ✓ таймлайн, ✓ экспорт, ✓ selftest-гейтинг (`AM2_SELFTEST`). Осталось: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). Параллельно Phase 7: ещё эффекты (kaleidoscope, halftone, scan-glitch, потом feedback-инфра → echo/Droste, оптик-флоу мош) |
+| Следующее действие | Готово: файл-пикеры, аудио, тема, таймлайн, экспорт, гейтинг, feedback-инфра. Осталось: (1) **time_displacement** (ring-буфер кадров → радужные срезы времени, виральное); (2) egui dockspace (`egui_dock`); (3) node-graph (`egui_node_graph`); (4) оптик-флоу мош (нужна GLSL flow-оценка) |
 | Блокеры | нет |
 | Последний чекпоинт-коммит | `0c8e053` (feedback-инфра + 12 эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▰▰▰▰▰▱▱▱ ~6.5/10 (C0–C5 + Phase 6 почти весь + 10 эффектов из Phase 7)
+**Прогресс по фазам:** ▰▰▰▰▰▰▰▱▱▱ ~6.5/10 (C0–C5 + Phase 6 почти весь + 12 эффектов Phase 7, feedback-класс открыт)
 
 > Авто-цикл `automatch2-progress-checkin` переведён на **3ч** (по `/loop 3h`). Один цикл, не два —
 > чтобы не было гонки на git push. Он читает этот §0 и двигает Phase 6 дальше.
