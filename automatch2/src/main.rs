@@ -271,7 +271,30 @@ impl eframe::App for AutomatchApp {
 
         egui::SidePanel::left("status").min_width(330.0).show(ctx, |ui| {
             ui.heading("automatch 2");
-            ui.label("Phases 0–3 — окно + GFX + медиа + эффекты");
+            ui.label("C0–C5 + ModMatrix · окно/GFX/медиа/эффекты/аудио/экспорт");
+            ui.separator();
+            if ui.button("📂 Загрузить видео…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("video", &["mp4", "mov", "mkv", "webm", "avi", "m4v"])
+                    .pick_file()
+                {
+                    match Player::open(media::ffmpeg_path(), path, 30.0) {
+                        Ok(p) => {
+                            self.player = Some(p);
+                            self.video_tex = None;
+                        }
+                        Err(e) => eprintln!("open video: {e}"),
+                    }
+                }
+            }
+            if let Some(p) = self.player.as_ref() {
+                let name = p
+                    .src
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                ui.label(format!("источник: {name}"));
+            }
             ui.separator();
             ui.label(format!("OpenGL: {}", self.gl_version));
             let dt = ctx.input(|i| i.unstable_dt).max(1e-4);

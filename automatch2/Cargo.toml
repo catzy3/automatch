@@ -9,6 +9,8 @@ description = "AutoMatch 2 — beat-synced VFX auto-editor (Rust port). Phase 0 
 # context, so we get an egui UI now and a GL surface for custom effect
 # rendering later — without hand-wiring the window/context stack.
 eframe = "0.28"
+# native file-open dialog for loading the user's own video/audio.
+rfd = "0.14"
 
 [profile.dev]
 opt-level = 1        # keep debug builds responsive for a realtime tool
