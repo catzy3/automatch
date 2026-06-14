@@ -374,6 +374,50 @@ impl eframe::App for AutomatchApp {
             }
         });
 
+        egui::TopBottomPanel::bottom("timeline").min_height(86.0).show(ctx, |ui| {
+            ui.label("Таймлайн (онсеты + биты)");
+            let (resp, painter) = ui.allocate_painter(
+                egui::vec2(ui.available_width(), 60.0),
+                egui::Sense::hover(),
+            );
+            let rect = resp.rect;
+            painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(6, 6, 10));
+            let cyan = egui::Color32::from_rgb(60, 220, 255);
+            let magenta = egui::Color32::from_rgb(255, 46, 136);
+            match self.analysis.as_ref() {
+                Some(a) if !a.env.is_empty() && a.duration > 0.0 => {
+                    let w = rect.width().max(1.0) as usize;
+                    let n = a.env.len();
+                    for x in 0..w {
+                        let i = (x * n / w).min(n - 1);
+                        let v = a.env[i].clamp(0.0, 1.0);
+                        let px = rect.left() + x as f32;
+                        painter.line_segment(
+                            [egui::pos2(px, rect.bottom()), egui::pos2(px, rect.bottom() - v * rect.height())],
+                            egui::Stroke::new(1.0, cyan.gamma_multiply(0.55)),
+                        );
+                    }
+                    for &b in &a.beats {
+                        let fx = (b / a.duration).clamp(0.0, 1.0);
+                        let px = rect.left() + fx * rect.width();
+                        painter.line_segment(
+                            [egui::pos2(px, rect.top()), egui::pos2(px, rect.bottom())],
+                            egui::Stroke::new(1.0, magenta),
+                        );
+                    }
+                }
+                _ => {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "загрузите аудио для анализа битов",
+                        egui::FontId::monospace(12.0),
+                        egui::Color32::from_rgb(120, 120, 140),
+                    );
+                }
+            }
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Превью (демо-клип через цепочку)");
             match (self.player.as_ref(), self.video_tex.as_ref()) {

@@ -18,6 +18,7 @@ pub struct AudioAnalysis {
     pub bpm: f32,
     pub beats: Vec<f32>,
     pub duration: f32,
+    pub env: Vec<f32>, // onset envelope (for the timeline waveform display)
 }
 
 /// Decode an audio/video file to mono f32 PCM at `SR` via ffmpeg.
@@ -200,7 +201,7 @@ pub fn analyze(ffmpeg: &Path, file: &Path) -> Result<AudioAnalysis, String> {
     let env = onset_envelope(&pcm);
     let bpm = estimate_bpm(&env);
     let beats = beat_times(&env, bpm, duration);
-    Ok(AudioAnalysis { bpm, beats, duration })
+    Ok(AudioAnalysis { bpm, beats, duration, env })
 }
 
 /// Headless check of the FILE path: ffmpeg generates a rhythmic 120 BPM click
