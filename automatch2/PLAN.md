@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | **9 selftest'ов PASS** (добавлен **AUDIO-FILE**: реальный ffmpeg-WAV → `decode_pcm` → analyze → bpm 123). Кнопки «Загрузить видео/аудио» (rfd) работают; аудио-анализ показывает BPM/биты/cuts. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио, ✓ тема, ✓ таймлайн, ✓ экспорт, ✓ selftest-гейтинг (`AM2_SELFTEST`). Осталось: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). Параллельно Phase 7: ещё эффекты (kaleidoscope, halftone, scan-glitch, потом feedback-инфра → echo/Droste, оптик-флоу мош) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `f5f46a9` (selftest-гейтинг) |
+| Последний чекпоинт-коммит | `9d7d302` (+3 эффекта, итого 10) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
