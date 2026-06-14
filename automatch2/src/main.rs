@@ -11,9 +11,11 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::time::Instant;
 
+mod audio;
 mod effects;
 mod gfx;
 mod media;
+mod timeline;
 
 /// Minimal video player: decodes frames on the main thread, paced by wall clock,
 /// loops at end of stream. Display + effects happen in the app `update`.
@@ -78,6 +80,10 @@ struct AutomatchApp {
     media_ok: bool,
     effects_selftest: String,
     effects_ok: bool,
+    audio_selftest: String,
+    audio_ok: bool,
+    timeline_selftest: String,
+    timeline_ok: bool,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -127,6 +133,18 @@ impl AutomatchApp {
             None => (None, "skipped (no gl)".to_owned(), false),
         };
 
+        let (audio_selftest, audio_ok) = match audio::selftest() {
+            Ok(d) => (format!("PASS — {d}"), true),
+            Err(e) => (format!("FAIL — {e}"), false),
+        };
+        eprintln!("AUDIO SELFTEST: {audio_selftest}");
+
+        let (timeline_selftest, timeline_ok) = match timeline::selftest() {
+            Ok(d) => (format!("PASS — {d}"), true),
+            Err(e) => (format!("FAIL — {e}"), false),
+        };
+        eprintln!("TIMELINE SELFTEST: {timeline_selftest}");
+
         let player = {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
@@ -149,6 +167,10 @@ impl AutomatchApp {
             media_ok,
             effects_selftest,
             effects_ok,
+            audio_selftest,
+            audio_ok,
+            timeline_selftest,
+            timeline_ok,
             player,
             chain,
             video_tex: None,
@@ -203,6 +225,8 @@ impl eframe::App for AutomatchApp {
             ui.colored_label(c(self.gfx_ok), format!("GFX: {}", self.gfx_selftest));
             ui.colored_label(c(self.media_ok), format!("MEDIA: {}", self.media_selftest));
             ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
+            ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
+            ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
             ui.separator();
 
             ui.strong("Цепочка эффектов");

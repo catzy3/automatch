@@ -11,20 +11,20 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 3 — ЗАВЕРШЕНА** → начинаем Phase 4 |
-| Шаг | C3 готов: `effects` (EffectChain ping-pong, реестр), 4 GLSL-эффекта + служебный invert, тумблеры/mix в UI, видео идёт через цепочку |
-| Последнее проверено (verified) | Три selftest'а PASS: GFX, MEDIA, **EFFECTS** (invert через цепочку (10,150,240)→(245,105,15)). Окно 8с: демо-клип рендерится через chroma_aberration+crt_scanlines. Сборка чистая |
-| Следующее действие | Phase 4 — Audio+Timeline: парсинг BPM/битов (aubio или свой онсет+rustfft), beat-sync нарезка (порт `build_timeline`), seed-детерминизм, ModMatrix |
+| Фаза | **Phase 4 — ЗАВЕРШЕНА** → начинаем Phase 5 |
+| Шаг | C4 готов: `audio` (PCM-декод, onset-огибающая, BPM автокорреляцией+octave-fix, фаза битов) + `timeline` (beat-sync нарезка, seed-детерминизм) |
+| Последнее проверено (verified) | 5 selftest'ов PASS: GFX, MEDIA, EFFECTS, **AUDIO** (клик 120 BPM → детект 123, 13 битов), **TIMELINE** (12 cuts, детерминизм, ends@6.0s). Сборка чистая |
+| Следующее действие | Phase 5 — Export: кадры с GPU → ffmpeg (CLI-пайп) + мукс аудио; порт `datamosh_bitstream.py` на Rust (bloom/smear/fine-scale) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | _обновится после push C3_ |
+| Последний чекпоинт-коммит | _обновится после push C4_ |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▰▰▱▱▱▱▱▱ 4/10 (C0–C3)
+**Прогресс по фазам:** ▰▰▰▰▰▱▱▱▱▱ 5/10 (C0–C4)
 
-> Эффекты пока самодостаточные GLSL (warp/aberration/CRT/rgb-split). Перенос «большинства»
-> шейдеров v1 и новые виральные — в Phase 7. Рендер сейчас: GPU-цепочка → readback → egui-текстура;
-> прямой PaintCallback в вьюпорт — оптимизация Phase 6/8.
+> ModMatrix (LFO+аудио→параметры) перенесён в Phase 6 (UI), чтобы C4 остался сфокусирован на
+> проверяемом ядре beat-sync. BPM-детект — энергетический; spectral-flux/aubio-апгрейд для
+> сложной музыки — рефайнмент Phase 7/8.
 
 ---
 
@@ -289,7 +289,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - [x] C1 Core GFX (Program+кэш, Quad, Fbo, PingPong) — selftest PASS (readback свиззла)
 - [x] C2 Media decode → GL — MEDIA selftest PASS (5 кадров 160x90), плеер в окне
 - [x] C3 Effect graph + 4 шейдера — EFFECTS selftest PASS (invert через цепочку), live-тумблеры
-- [ ] C4 Audio + timeline (beat-sync)
+- [x] C4 Audio + timeline (beat-sync) — AUDIO+TIMELINE selftests PASS (клик→123bpm, 12 детерм. cuts)
 - [ ] C5 Export + нативный датамош
 - [ ] C6 UI overhaul
 - [ ] C7 Эффект-пуш (группы ниже)
@@ -328,4 +328,5 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C0 (Phase 0) ГОТОВ.** Поставлен Rust (rustup, stable-msvc). Создан cargo-скелет `automatch2/` на `eframe` (winit+glutin+glow+egui): окно «automatch 2 — C0 scaffold», egui-панель показывает версию OpenGL и FPS. Решено брать GL-контекст через `eframe::glow` и рисовать кастомный GL в вьюпорт через `egui::PaintCallback`+`egui_glow::CallbackFn`. Verify: `cargo build` Finished (1m21s); бинарник запущен — окно жило 8с без падения. Файлы: `Cargo.toml`, `src/main.rs`, `.gitignore` (игнор `/target`).
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
+- 2026-06-14 — **C4 (Phase 4) ГОТОВ.** `src/audio.rs`: `decode_pcm` (ffmpeg f32le mono), `onset_envelope` (энергия, half-wave), `estimate_bpm` (автокорреляция + сглаживание + octave-коррекция к быстрому темпу), `beat_times` (фаза-выравнивание сетки), `analyze`. `src/timeline.rs`: `build_timeline` (cuts из битов×cuts_per_beat, xorshift-детерминизм, без повтора подряд). Баг: первый BPM-детект давал 60 вместо 120 (octave-error) — корень: нецелый период (21.5 кадра) + ошибочный bias к медленному; фикс — сглаживание огибающей + octave-коррекция вниз по лагу. Verify: AUDIO PASS (клик 120→123, 13 битов), TIMELINE PASS (12 cuts, детерминизм, ends@6.0s).
 - 2026-06-14 — **C3 (Phase 3) ГОТОВ.** `shaders/`: `rgb_split`, `wave_warp`, `chroma_aberration`, `crt_scanlines` (+ служебный `_invert`), общий контракт юниформов. `src/effects.rs`: `Effect` (prog/enabled/mix), `EffectChain` (ping-pong, upload→цепочка→readback), реестр через `include_str!`. В `main.rs` плеер прогоняет кадр через цепочку (gl из `frame.gl()`), тумблеры+mix в панели, дефолт chroma+CRT. Verify: `EFFECTS SELFTEST: PASS` (invert через цепочку (10,150,240)→(245,105,15)); три selftest'а зелёные, окно 8с с живым превью.
