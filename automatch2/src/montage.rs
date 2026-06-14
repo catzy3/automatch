@@ -62,6 +62,9 @@ pub struct MontageFrameSource {
     canvas: (i32, i32), // uniform output size every clip is scaled to
     cur_cut: usize,
     reader: Option<VideoReader>,
+    fade: f32,            // crossfade duration at each cut (seconds)
+    prev_last: Vec<u8>,   // last frame of the previous cut (for the dissolve)
+    fade_start: f32,      // t_start of the cut being faded into
 }
 
 impl MontageFrameSource {
@@ -81,7 +84,15 @@ impl MontageFrameSource {
             canvas,
             cur_cut: usize::MAX,
             reader: None,
+            fade: 0.15,
+            prev_last: Vec::new(),
+            fade_start: 0.0,
         }
+    }
+
+    /// Set the crossfade duration at cuts (0 = hard cuts).
+    pub fn set_fade(&mut self, fade: f32) {
+        self.fade = fade.max(0.0);
     }
 
     pub fn canvas(&self) -> (i32, i32) {
@@ -122,19 +133,41 @@ impl MontageFrameSource {
         }
         let ci = self.cut_index_for(t);
         if ci != self.cur_cut || self.reader.is_none() {
+            // entering a new cut: `buf` still holds the previous cut's last
+            // frame → snapshot it for the crossfade (no per-frame cloning).
+            if self.cur_cut != usize::MAX && self.fade > 0.0 && !buf.is_empty() {
+                self.prev_last.clear();
+                self.prev_last.extend_from_slice(buf);
+                self.fade_start = self.cuts[ci].t_start;
+            }
             self.open_cut(ci);
         }
-        match self.reader.as_mut() {
+        let got = match self.reader.as_mut() {
             Some(r) => match r.next_frame(buf) {
                 Ok(true) => true,
                 _ => {
-                    // clip ended inside the cut → loop it
-                    self.open_cut(ci);
+                    self.open_cut(ci); // clip ended inside the cut → loop it
                     matches!(self.reader.as_mut().map(|r| r.next_frame(buf)), Some(Ok(true)))
                 }
             },
             None => false,
+        };
+        if !got {
+            return false;
         }
+        // ── crossfade from the previous cut over `fade` seconds ──
+        if self.fade > 0.0 && self.prev_last.len() == buf.len() {
+            let k = ((t - self.fade_start) / self.fade).clamp(0.0, 1.0);
+            if k < 1.0 {
+                let ik = 1.0 - k;
+                for (b, p) in buf.iter_mut().zip(self.prev_last.iter()) {
+                    *b = (*b as f32 * k + *p as f32 * ik) as u8;
+                }
+            } else {
+                self.prev_last.clear();
+            }
+        }
+        true
     }
 }
 
@@ -174,25 +207,48 @@ pub fn selftest() -> Result<String, String> {
     let cuts = build_timeline(&beats, 2.0, 1.0, 2, 1);
     let n = cuts.len();
 
-    let mut mfs = MontageFrameSource::new(pool, cuts.clone());
+    // ── part 1: clip switching (sample late in each cut, past the fade) ──
+    let mut mfs = MontageFrameSource::new(pool.clone(), cuts.clone());
     let mut buf = Vec::new();
     let mut colors = Vec::new();
     for c in &cuts {
-        if mfs.frame_at(c.t_start + 0.01, &mut buf) {
+        if mfs.frame_at((c.t_end - 0.02).max(c.t_start), &mut buf) {
             colors.push(dominant_channel(&buf));
         } else {
             colors.push(99);
         }
     }
+    let switched = colors.windows(2).all(|w| w[0] != w[1]);
+    let valid = colors.iter().all(|&c| c == 0 || c == 2); // red or blue only
+
+    // ── part 2: crossfade — mid-transition must blend both clips ──
+    let mut mfs2 = MontageFrameSource::new(pool, cuts.clone());
+    let _ = mfs2.frame_at((cuts[0].t_end - 0.02).max(0.0), &mut buf); // establish cut 0
+    mfs2.frame_at(cuts[1].t_start + 0.075, &mut buf); // ~mid of a 0.15s fade
+    let (r, _g, b) = avg_rgb(&buf);
+    let blended = r > 60 && b > 60; // both red & blue present → dissolve
+
     let _ = std::fs::remove_file(&red);
     let _ = std::fs::remove_file(&blue);
 
-    // every adjacent pair of cuts must differ (the montage actually switched)
-    let switched = colors.windows(2).all(|w| w[0] != w[1]);
-    let valid = colors.iter().all(|&c| c == 0 || c == 2); // red or blue only
-    if n >= 3 && switched && valid {
-        Ok(format!("{n} cuts, colors {colors:?} alternate (clip switching works)"))
+    if n >= 3 && switched && valid && blended {
+        Ok(format!("{n} cuts {colors:?} alternate; crossfade blends (R={r},B={b})"))
     } else {
-        Err(format!("cuts={n}, colors={colors:?}, switched={switched}, valid={valid}"))
+        Err(format!("cuts={n}, colors={colors:?}, switched={switched}, valid={valid}, blended={blended} (R={r},B={b})"))
     }
+}
+
+fn avg_rgb(buf: &[u8]) -> (i32, i32, i32) {
+    if buf.len() < 4 {
+        return (0, 0, 0);
+    }
+    let (mut r, mut g, mut b, mut n) = (0u64, 0u64, 0u64, 0u64);
+    for px in buf.chunks_exact(4) {
+        r += px[0] as u64;
+        g += px[1] as u64;
+        b += px[2] as u64;
+        n += 1;
+    }
+    n = n.max(1);
+    ((r / n) as i32, (g / n) as i32, (b / n) as i32)
 }
