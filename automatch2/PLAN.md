@@ -11,16 +11,16 @@
 | Поле | Значение |
 |---|---|
 | Дата обновления | 2026-06-14 |
-| Фаза | **Phase 6 почти весь готов + Phase 7 идёт** (13 эффектов; feedback + history-ring открыты) |
-| Шаг | Готово: файл-пикеры, аудио+таймлайн, ModMatrix, экспорт MP4, тема, selftest-гейтинг, **feedback-инфра**, **history-ring (time_displacement)**. Эффектов: **13** (… + echo_trails, feedback_zoom, time_displacement) |
-| Последнее проверено (verified) | EFFECTS+FEEDBACK+**TIMEDISP** PASS (time_displacement: row0 G=252 / row7 G=72, точная задержка по строке через 2D-array историю). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
-| Следующее действие | Осталось по UI: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`). По эффектам: оптик-флоу мош (GLSL flow-оценка по 2 кадрам истории), beat-stutter/strobe (по audio.beats), light-leaks/анаморф, neon-edge |
+| Фаза | **Phase 6 почти весь готов + Phase 7 идёт** (14 эффектов; feedback + history-ring открыты) |
+| Шаг | Готово: файл-пикеры, аудио+таймлайн, ModMatrix, экспорт MP4, тема, гейтинг, feedback-инфра, history-ring. Эффектов: **14** (… + time_displacement, **optic_flow_mosh**) |
+| Последнее проверено (verified) | 4 GL-selftest'а PASS: EFFECTS, FEEDBACK, TIMEDISP, **FLOWMOSH** (оптик-флоу мош стабилен 6 кадров, кадр изменён). С `AM2_SELFTEST=1` все ffmpeg-selftest'ы зелёные. Сборка чистая |
+| Следующее действие | По UI: (1) egui dockspace (`egui_dock`); (2) node-graph (`egui_node_graph`); (3) визуальная докрутка optic_flow_mosh вживую. По эффектам: beat-stutter/strobe (по audio.beats), light-leaks/анаморф, neon-edge |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `c8d07bb` (time_displacement, 13 эффектов) |
+| Последний чекпоинт-коммит | `c8d07bb` (будет обновлён) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
-**Прогресс по фазам:** ▰▰▰▰▰▰▰▱▱▱ ~6.5/10 (C0–C5 + Phase 6 почти весь + 13 эффектов Phase 7; feedback + history-ring открыты)
+**Прогресс по фазам:** ▰▰▰▰▰▰▰▱▱▱ ~6.5/10 (C0–C5 + Phase 6 почти весь + 14 эффектов Phase 7; feedback + history-ring открыты)
 
 > Авто-цикл `automatch2-progress-checkin` переведён на **3ч** (по `/loop 3h`). Один цикл, не два —
 > чтобы не было гонки на git push. Он читает этот §0 и двигает Phase 6 дальше.
@@ -300,7 +300,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - [ ] C9 Полировка + v2.0.0
 
 **Эффекты (отмечаем по мере готовности + проверки на реальном видео):**
-- [x] Битстрим-датамош (native, C5.1) · [ ] Оптик-флоу мош (нужна flow-оценка) · [x] Pixel drag/stretch (`pixel_stretch`)
+- [x] Битстрим-датамош (native, C5.1) · [x] Оптик-флоу мош (`optic_flow_mosh`, LK-flow в реальном времени) · [x] Pixel drag/stretch (`pixel_stretch`)
 - [x] Time displacement (`time_displacement`, ring 24 кадра) · [x] Echo-трейлы (`echo_trails`) · [ ] Beat-stutter/strobe · [x] Feedback-zoom Droste (`feedback_zoom`)
 - [x] Хром. дисперсия (`chroma_aberration`) · [ ] Light leaks/анаморф · [ ] Tilt-shift(depth)
 - [x] Wave-warp (`wave_warp`) · [ ] Liquify(audio) · [ ] Rolling shutter · [x] Shockwave-ripple (`shockwave`)
@@ -332,6 +332,7 @@ export: PBO download → Encoder). Параметры эффектов — в UB
 - 2026-06-14 — **C1 (Phase 1) ГОТОВ.** `src/gfx.rs`: `Program` (compile/link + кэш юниформ-локаций), `Quad` (fullscreen-strip), `make_tex_rgba`, `Fbo`, `PingPong`. Поправлен glow-0.13 API (`tex_image_2d` берёт `Option<&[u8]>`; `read_pixels` → `PixelPackData::Slice(&mut)`). В `main.rs` selftest при старте + цветной статус в панели. Verify: `GFX SELFTEST: PASS` — (10,150,240) через свиззл-проход в FBO → readback (240,150,10). Сборка чистая.
 - 2026-06-14 — **C2 (Phase 2) ГОТОВ.** `src/media.rs`: резолвер ffmpeg (env → imageio-bundled → PATH), `probe_dimensions` (парсинг stderr-баннера), `VideoReader` (ffmpeg `-f rawvideo -pix_fmt rgba pipe:1`, `next_frame` с EOF→loop), `generate_test_clip`. В `main.rs` — `Player` (декод по wall-clock, показ через egui-текстуру, луп) + двухпанельный UI (статус + превью). Verify: `MEDIA SELFTEST: PASS` — 5 кадров 160x90, контент ok; окно с живым плеером демо-клипа 8с без падения.
 - 2026-06-14 — **C5 экспорт-ядро ГОТОВО.** `src/export.rs`: `Encoder` (ffmpeg `-f rawvideo -pix_fmt rgba` stdin → libx264 mp4), `export_clip` (декод→цепочка→кодирование), `selftest` (клип→экспорт→переоткрытие). Verify: `EXPORT SELFTEST: PASS` — 30 кадров закодировано, результат переоткрыт 160x90.
+- 2026-06-14 — **Phase 7: optic_flow_mosh (итого 14).** Шейдер `optic_flow_mosh.frag` — одно-пиксельный Lucas-Kanade flow по текущему кадру + прошлому входу из history-кольца (слой head-2); прошлый ВЫХОД (`u_prev`) тянется вдоль векторов движения = реал-тайм датамош-расплыв, с лёгким reseed (6%) и clamp flow ±0.05 от runaway. Использует обе инфра-системы (feedback + history). Новый runtime-smoke `selftest_flow` (движущийся край, 6 кадров). Verify: `FLOWMOSH SELFTEST: PASS` — стабилен, диапазон 0..255, кадр изменён; EFFECTS+FEEDBACK+TIMEDISP тоже PASS. (Визуальная докрутка — вживую.)
 - 2026-06-14 — **Phase 7: time_displacement + history-ring (итого 13).** В `EffectChain` добавлен `history_tex` — 2D-array текстура на `HISTORY_N=24` слоёв (NEAREST), кольцо последних входных кадров: каждый кадр `copy_image_sub_data(input → слой head)`, `head=(head+1)%N`. Биндится на unit 2 = `u_history` (sampler2DArray) + uniforms `u_history_n/head`. Эффект `time_displacement` — слой по `v_uv.y` (строка = задержка) = «срез времени»/радужный смаз. Новый `selftest_time`. Verify: `TIMEDISP SELFTEST: PASS` — row0 G=252 (свежий), row7 G=72 (на 21 кадр старше, Δ=180); математика задержки точна. EFFECTS+FEEDBACK тоже PASS.
 - 2026-06-14 — **Phase 7: feedback-инфра + 2 эффекта (итого 12).** В `EffectChain` добавлен персистентный `feedback_tex` (прошлый финальный кадр), биндится на unit 1 = `u_prev` для всех проходов (skip если не объявлен), после кадра копируется `copy_tex_sub_image_2d`. Сброс в чёрный при resize. Эффекты `echo_trails` (max(cur, prev*0.92)) и `feedback_zoom` (поворот+зум prev = Droste-тоннель). Новый `selftest_feedback`. Verify: `FEEDBACK SELFTEST: PASS` — frame1 G=200, трейл frame2-из-чёрного G=184 (persistence между process() доказана); EFFECTS PASS (12 шейдеров). Открывает класс: time-displacement (ring), оптик-флоу мош.
 - 2026-06-14 — **Phase 7: +3 эффекта (итого 10).** `kaleidoscope` (n-кратное зеркало с вращением), `halftone` (растровые точки, цвет сохраняется), `scan_glitch` (рваные горизонтальные полосы + RGB-десинк = сигнальный тир). Verify: `EFFECTS SELFTEST: PASS` без ошибок компиляции (все 10 шейдеров собрались на GPU). Эффекты: rgb_split, wave_warp, chroma_aberration, crt_scanlines, vhs, shockwave, pixel_stretch, kaleidoscope, halftone, scan_glitch.

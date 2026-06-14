@@ -156,6 +156,10 @@ impl AutomatchApp {
                     Ok(d) => eprintln!("TIMEDISP SELFTEST: PASS — {d}"),
                     Err(e) => eprintln!("TIMEDISP SELFTEST: FAIL — {e}"),
                 }
+                match effects::selftest_flow(gl) {
+                    Ok(d) => eprintln!("FLOWMOSH SELFTEST: PASS — {d}"),
+                    Err(e) => eprintln!("FLOWMOSH SELFTEST: FAIL — {e}"),
+                }
                 let chain = unsafe { effects::EffectChain::new(gl) }
                     .map(|mut c| {
                         // a tasteful default look on the demo clip

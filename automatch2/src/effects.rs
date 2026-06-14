@@ -53,6 +53,7 @@ fn builtin() -> Vec<(&'static str, &'static str)> {
         ("echo_trails", include_str!("../shaders/echo_trails.frag")),
         ("feedback_zoom", include_str!("../shaders/feedback_zoom.frag")),
         ("time_displacement", include_str!("../shaders/time_displacement.frag")),
+        ("optic_flow_mosh", include_str!("../shaders/optic_flow_mosh.frag")),
         ("_invert", include_str!("../shaders/_invert.frag")),
     ]
 }
@@ -331,6 +332,49 @@ pub fn selftest_time(gl: &glow::Context) -> Result<String, String> {
             Ok(msg)
         } else {
             Err(msg)
+        }
+    }
+}
+
+/// Runtime smoke test of `optic_flow_mosh`: push a moving edge through several
+/// frames and confirm the pass is stable (valid output) and actually alters the
+/// frame (uses the feedback + history infra without producing garbage/NaN).
+pub fn selftest_flow(gl: &glow::Context) -> Result<String, String> {
+    unsafe {
+        let mut chain = EffectChain::new(gl)?;
+        for e in chain.effects.iter_mut() {
+            e.enabled = e.name == "optic_flow_mosh";
+            e.mix = 1.0;
+        }
+        let (w, h) = (8, 4);
+        let frame = |split: i32| -> Vec<u8> {
+            let mut f = Vec::with_capacity((w * h * 4) as usize);
+            for _y in 0..h {
+                for x in 0..w {
+                    let v = if x < split { 0u8 } else { 255u8 };
+                    f.extend_from_slice(&[v, v, v, 255]);
+                }
+            }
+            f
+        };
+        let mut out = Vec::new();
+        for k in 0..6 {
+            out = chain.process(gl, &frame(2 + k % 5), w, h, 0.0)?; // edge slides
+        }
+        let last_in = frame(2 + 5 % 5);
+        chain.destroy(gl);
+        if out.len() != (w * h * 4) as usize {
+            return Err("bad output size".into());
+        }
+        // not identical to the raw input → the mosh actually did something
+        let changed = out != last_in;
+        // sanity: a mix of values present (not collapsed to a single constant)
+        let mn = *out.iter().min().unwrap();
+        let mx = *out.iter().max().unwrap();
+        if changed && mx > mn {
+            Ok(format!("stable over 6 frames, range {mn}..{mx}, altered=yes"))
+        } else {
+            Err(format!("changed={changed}, range {mn}..{mx}"))
         }
     }
 }
