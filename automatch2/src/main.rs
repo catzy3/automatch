@@ -13,6 +13,7 @@ use std::time::Instant;
 
 mod audio;
 mod effects;
+mod export;
 mod gfx;
 mod media;
 mod timeline;
@@ -84,6 +85,8 @@ struct AutomatchApp {
     audio_ok: bool,
     timeline_selftest: String,
     timeline_ok: bool,
+    export_selftest: String,
+    export_ok: bool,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     video_tex: Option<egui::TextureHandle>,
@@ -145,6 +148,15 @@ impl AutomatchApp {
         };
         eprintln!("TIMELINE SELFTEST: {timeline_selftest}");
 
+        let (export_selftest, export_ok) = match cc.gl.as_ref() {
+            Some(gl) => match export::selftest(gl) {
+                Ok(d) => (format!("PASS — {d}"), true),
+                Err(e) => (format!("FAIL — {e}"), false),
+            },
+            None => ("skipped (no gl)".to_owned(), false),
+        };
+        eprintln!("EXPORT SELFTEST: {export_selftest}");
+
         let player = {
             let ffmpeg = media::ffmpeg_path();
             let demo = std::env::temp_dir().join("am2_demo.mp4");
@@ -171,6 +183,8 @@ impl AutomatchApp {
             audio_ok,
             timeline_selftest,
             timeline_ok,
+            export_selftest,
+            export_ok,
             player,
             chain,
             video_tex: None,
@@ -227,6 +241,7 @@ impl eframe::App for AutomatchApp {
             ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
             ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
             ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
+            ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
             ui.separator();
 
             ui.strong("Цепочка эффектов");
