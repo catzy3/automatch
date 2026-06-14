@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | **9 selftest'ов PASS** (добавлен **AUDIO-FILE**: реальный ffmpeg-WAV → `decode_pcm` → analyze → bpm 123). Кнопки «Загрузить видео/аудио» (rfd) работают; аудио-анализ показывает BPM/биты/cuts. Сборка чистая |
 | Следующее действие | Phase 6: ✓ файл-пикер, ✓ аудио-интеграция, ✓ тема, ✓ таймлайн-полоса, ✓ кнопка «Экспорт MP4». Осталось: (1) egui dockspace (`egui_dock`, перетаскиваемые вкладки); (2) node-graph (`egui_node_graph`); (3) спрятать стартовые selftest'ы за `AM2_SELFTEST` debug-флаг (сейчас ~6 ffmpeg-проходов на старте). Потом Phase 7 (виральные эффекты) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `b47df92` (UI-экспорт) |
+| Последний чекпоинт-коммит | `4cc4daa` (+3 эффекта: vhs/shockwave/pixel_stretch) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
