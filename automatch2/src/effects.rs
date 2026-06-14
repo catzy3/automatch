@@ -54,6 +54,8 @@ fn builtin() -> Vec<(&'static str, &'static str)> {
         ("feedback_zoom", include_str!("../shaders/feedback_zoom.frag")),
         ("time_displacement", include_str!("../shaders/time_displacement.frag")),
         ("optic_flow_mosh", include_str!("../shaders/optic_flow_mosh.frag")),
+        ("neon_edge", include_str!("../shaders/neon_edge.frag")),
+        ("light_leaks", include_str!("../shaders/light_leaks.frag")),
         ("_invert", include_str!("../shaders/_invert.frag")),
     ]
 }
