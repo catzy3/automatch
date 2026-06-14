@@ -160,6 +160,30 @@ pub fn generate_test_clip(
     }
 }
 
+/// Generate a solid-colour test clip (for montage tests / placeholders).
+pub fn generate_color_clip(
+    ffmpeg: &Path,
+    out: &Path,
+    color: &str,
+    w: i32,
+    h: i32,
+    seconds: f32,
+) -> Result<(), String> {
+    let src = format!("color=c={color}:s={w}x{h}:r=30:d={seconds}");
+    let st = Command::new(ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg(&src)
+        .args(["-pix_fmt", "yuv420p"])
+        .arg(out)
+        .status()
+        .map_err(|e| format!("spawn ffmpeg failed: {e}"))?;
+    if st.success() && out.exists() {
+        Ok(())
+    } else {
+        Err("color clip generation failed".to_owned())
+    }
+}
+
 /// Headless check: generate a clip, decode several frames, verify dimensions
 /// and that frames carry real content.
 pub fn selftest() -> Result<String, String> {

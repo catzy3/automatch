@@ -18,6 +18,7 @@ mod export;
 mod gfx;
 mod media;
 mod modmatrix;
+mod montage;
 mod timeline;
 
 /// Minimal video player: decodes frames on the main thread, paced by wall clock,
@@ -223,6 +224,13 @@ impl AutomatchApp {
         };
         if run_st {
             eprintln!("DATAMOSH SELFTEST: {datamosh_selftest}");
+        }
+
+        if run_st {
+            match montage::selftest() {
+                Ok(d) => eprintln!("MONTAGE SELFTEST: PASS — {d}"),
+                Err(e) => eprintln!("MONTAGE SELFTEST: FAIL — {e}"),
+            }
         }
 
         let (modmatrix_selftest, modmatrix_ok) = match modmatrix::selftest() {
