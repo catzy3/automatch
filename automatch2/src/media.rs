@@ -79,6 +79,26 @@ fn parse_dimensions(s: &str) -> Option<(i32, i32)> {
     None
 }
 
+/// Probe a clip's duration (seconds) by parsing ffmpeg's "Duration:" banner.
+pub fn probe_duration(ffmpeg: &Path, file: &Path) -> Option<f32> {
+    let out = Command::new(ffmpeg)
+        .args(["-hide_banner", "-i"])
+        .arg(file)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stderr);
+    let idx = text.find("Duration:")?;
+    let after = text[idx + "Duration:".len()..].trim_start();
+    let hms = after.split(',').next()?.trim(); // HH:MM:SS.ss
+    let mut parts = hms.split(':');
+    let h: f32 = parts.next()?.parse().ok()?;
+    let m: f32 = parts.next()?.parse().ok()?;
+    let s: f32 = parts.next()?.parse().ok()?;
+    Some(h * 3600.0 + m * 60.0 + s)
+}
+
 /// Streams a video as raw RGBA frames from an ffmpeg child process.
 pub struct VideoReader {
     child: Child,
