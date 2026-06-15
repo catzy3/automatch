@@ -147,6 +147,9 @@ struct AutomatchApp {
     mod_demo: bool,
     export_request: Option<PathBuf>,
     export_status: String,
+    // bitstream datamosh (Avidemux-style) applied as an EXPORT post-pass
+    datamosh_bs: datamosh::DatamoshOpts,
+    datamosh_bs_on: bool,
     // (clip pool, cuts, duration, beats) — set when a montage folder is loaded,
     // so export can build a fresh frame source.
     montage_plan: Option<(montage::ClipPool, Vec<timeline::Cut>, f32, Vec<f32>)>,
@@ -368,6 +371,9 @@ impl AutomatchApp {
             // (headless verification of the update-loop export path).
             export_request: std::env::var("AM2_AUTOEXPORT").ok().map(PathBuf::from),
             export_status: String::new(),
+            datamosh_bs: datamosh::DatamoshOpts::default(),
+            datamosh_bs_on: std::env::var("AM2_DATAMOSH").is_ok(), // headless verify hook
+
             montage_plan,
             player,
             chain,
@@ -574,6 +580,22 @@ impl eframe::App for AutomatchApp {
             }
 
             ui.separator();
+            ui.collapsing("🩻 Датамош (Avidemux, на экспорте)", |ui| {
+                ui.checkbox(&mut self.datamosh_bs_on, "Включить на экспорте");
+                let on = self.datamosh_bs_on;
+                let d = &mut self.datamosh_bs;
+                ui.add_enabled_ui(on, |ui| {
+                    ui.checkbox(&mut d.bloom, "Bloom — удалять I-кадры (расплыв)");
+                    ui.checkbox(&mut d.smear, "Smear — дублить P-кадры (смаз)");
+                    ui.add(egui::Slider::new(&mut d.keyframe_sec, 0.25..=8.0).text("Интервал I, сек"));
+                    ui.add(egui::Slider::new(&mut d.bloom_chance, 0.0..=1.0).text("Доля удаляемых I"));
+                    ui.add(egui::Slider::new(&mut d.smear_repeat, 1..=8).text("Повторов P"));
+                    ui.add(egui::Slider::new(&mut d.smear_chance, 0.0..=1.0).text("Доля дублей P"));
+                    ui.add(egui::Slider::new(&mut d.fine_scale, 1.0..=4.0).text("Детализация (мельче блоки)"));
+                });
+            });
+
+            ui.separator();
             let can_export = self.player.is_some() && self.chain.is_some();
             if ui
                 .add_enabled(can_export, egui::Button::new("⬇ Экспорт MP4…"))
@@ -701,6 +723,20 @@ impl eframe::App for AutomatchApp {
                 } else {
                     "нет источника".to_owned()
                 };
+            }
+            // ── bitstream datamosh post-pass (Avidemux-style), like v1 ──
+            if self.datamosh_bs_on && status.starts_with('✓') && out.exists() {
+                let moshed = out.with_extension("mosh.mp4");
+                let (w, h) = media::probe_dimensions(&ff, &out).unwrap_or((1280, 720));
+                let dur = media::probe_duration(&ff, &out).unwrap_or(10.0);
+                match datamosh::datamosh_video(&out, &moshed, &self.datamosh_bs, 30.0, dur, 7, w, h) {
+                    Ok((nin, nout)) => {
+                        if std::fs::rename(&moshed, &out).is_ok() {
+                            status.push_str(&format!(" + датамош({nin}→{nout})"));
+                        }
+                    }
+                    Err(e) => status.push_str(&format!(" (датамош пропущен: {e})")),
+                }
             }
             self.export_status = status;
         }
