@@ -14,7 +14,7 @@ use crate::media;
 use std::path::Path;
 use std::process::Command;
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DatamoshOpts {
     pub bloom: bool,
     pub smear: bool,

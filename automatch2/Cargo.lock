@@ -514,6 +514,8 @@ version = "0.0.1"
 dependencies = [
  "eframe",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -21,6 +21,75 @@ mod modmatrix;
 mod montage;
 mod timeline;
 
+/// Serializable snapshot of one effect's state.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct EffectState {
+    name: String,
+    enabled: bool,
+    mix: f32,
+    params: Vec<f32>,
+}
+
+/// A saved session: effect chain state + bitstream-datamosh export settings.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Session {
+    effects: Vec<EffectState>,
+    datamosh_on: bool,
+    datamosh: datamosh::DatamoshOpts,
+}
+
+impl Session {
+    fn capture(chain: &effects::EffectChain, dm_on: bool, dm: &datamosh::DatamoshOpts) -> Self {
+        let effects = chain
+            .effects
+            .iter()
+            .filter(|e| e.is_featured())
+            .map(|e| EffectState {
+                name: e.name.to_string(),
+                enabled: e.enabled,
+                mix: e.mix,
+                params: e.params.iter().map(|p| p.value).collect(),
+            })
+            .collect();
+        Session { effects, datamosh_on: dm_on, datamosh: dm.clone() }
+    }
+
+    fn apply(&self, chain: &mut effects::EffectChain) {
+        for es in &self.effects {
+            if let Some(e) = chain.effects.iter_mut().find(|e| e.name == es.name) {
+                e.enabled = es.enabled;
+                e.mix = es.mix;
+                for (i, v) in es.params.iter().enumerate() {
+                    if let Some(p) = e.params.get_mut(i) {
+                        p.value = *v;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Headless check that a session round-trips through JSON.
+fn session_selftest() -> Result<String, String> {
+    let s = Session {
+        effects: vec![EffectState { name: "vhs".into(), enabled: true, mix: 0.5, params: vec![1.25] }],
+        datamosh_on: true,
+        datamosh: datamosh::DatamoshOpts::default(),
+    };
+    let json = serde_json::to_string(&s).map_err(|e| e.to_string())?;
+    let back: Session = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    let ok = back.effects.len() == 1
+        && back.effects[0].name == "vhs"
+        && (back.effects[0].mix - 0.5).abs() < 1e-6
+        && back.effects[0].params.first().map_or(false, |p| (p - 1.25).abs() < 1e-6)
+        && back.datamosh_on;
+    if ok {
+        Ok(format!("round-trip ok ({} bytes)", json.len()))
+    } else {
+        Err("round-trip mismatch".into())
+    }
+}
+
 /// Minimal video player: decodes frames on the main thread, paced by wall clock,
 /// loops at end of stream. Display + effects happen in the app `update`.
 struct Player {
@@ -295,6 +364,10 @@ impl AutomatchApp {
             Err(e) => (format!("FAIL — {e}"), false),
         };
         eprintln!("MODMATRIX SELFTEST: {modmatrix_selftest}");
+        match session_selftest() {
+            Ok(d) => eprintln!("SESSION SELFTEST: PASS — {d}"),
+            Err(e) => eprintln!("SESSION SELFTEST: FAIL — {e}"),
+        }
 
         // demo matrix: a slow sine pulsing the chroma aberration mix
         let modmatrix = modmatrix::ModMatrix {
@@ -578,6 +651,46 @@ impl eframe::App for AutomatchApp {
             } else {
                 ui.colored_label(c(false), "цепочка недоступна");
             }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("💾 Сохранить сессию").clicked() {
+                    if let Some(chain) = self.chain.as_ref() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .set_file_name("session.json")
+                            .add_filter("json", &["json"])
+                            .save_file()
+                        {
+                            let s = Session::capture(chain, self.datamosh_bs_on, &self.datamosh_bs);
+                            match serde_json::to_string_pretty(&s) {
+                                Ok(json) => {
+                                    let _ = std::fs::write(&path, json);
+                                    self.export_status = format!("сессия → {}", path.display());
+                                }
+                                Err(e) => self.export_status = format!("ошибка сохранения: {e}"),
+                            }
+                        }
+                    }
+                }
+                if ui.button("📂 Загрузить сессию").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("json", &["json"]).pick_file() {
+                        match std::fs::read_to_string(&path)
+                            .map_err(|e| e.to_string())
+                            .and_then(|t| serde_json::from_str::<Session>(&t).map_err(|e| e.to_string()))
+                        {
+                            Ok(s) => {
+                                if let Some(chain) = self.chain.as_mut() {
+                                    s.apply(chain);
+                                }
+                                self.datamosh_bs_on = s.datamosh_on;
+                                self.datamosh_bs = s.datamosh;
+                                self.export_status = "сессия загружена".to_owned();
+                            }
+                            Err(e) => self.export_status = format!("ошибка сессии: {e}"),
+                        }
+                    }
+                }
+            });
 
             ui.separator();
             ui.collapsing("🩻 Датамош (Avidemux, на экспорте)", |ui| {
