@@ -5,12 +5,13 @@ uniform sampler2D u_tex;
 uniform float u_mix;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_p0; // drift speed
 
 // Pixel-stretch / smear: a drifting seed column is dragged across the frame —
 // the classic datamosh "pulled pixels" streak.
 void main() {
     vec3 src = texture(u_tex, v_uv).rgb;
-    float seed = fract(u_time * 0.13);          // 0..1 seed column, drifts
+    float seed = fract(u_time * 0.13 * u_p0);    // 0..1 seed column, drifts
     vec3 col;
     if (v_uv.x > seed) {
         // stretch the seed column rightward, with a little vertical wobble

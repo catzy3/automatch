@@ -213,6 +213,10 @@ impl AutomatchApp {
                     Ok(d) => eprintln!("BEAT SELFTEST: PASS — {d}"),
                     Err(e) => eprintln!("BEAT SELFTEST: FAIL — {e}"),
                 }
+                match effects::selftest_params(gl) {
+                    Ok(d) => eprintln!("PARAMS SELFTEST: PASS — {d}"),
+                    Err(e) => eprintln!("PARAMS SELFTEST: FAIL — {e}"),
+                }
                 let chain = unsafe { effects::EffectChain::new(gl) }
                     .map(|mut c| {
                         // a tasteful default look on the demo clip
@@ -527,13 +531,18 @@ impl eframe::App for AutomatchApp {
             ui.strong("Цепочка эффектов");
             if let Some(chain) = self.chain.as_mut() {
                 for e in chain.effects.iter_mut().filter(|e| e.is_featured()) {
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut e.enabled, e.name);
-                    });
-                    ui.add_enabled(
-                        e.enabled,
-                        egui::Slider::new(&mut e.mix, 0.0..=1.0).text("mix"),
-                    );
+                    ui.checkbox(&mut e.enabled, e.name);
+                    if e.enabled {
+                        ui.indent(e.name, |ui| {
+                            ui.add(egui::Slider::new(&mut e.mix, 0.0..=1.0).text("mix"));
+                            for prm in e.params.iter_mut() {
+                                ui.add(
+                                    egui::Slider::new(&mut prm.value, prm.min..=prm.max)
+                                        .text(prm.label),
+                                );
+                            }
+                        });
+                    }
                 }
             } else {
                 ui.colored_label(c(false), "цепочка недоступна");

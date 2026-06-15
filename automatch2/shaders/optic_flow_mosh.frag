@@ -9,6 +9,7 @@ uniform int u_history_head;
 uniform float u_mix;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_p0; // flow strength
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -30,7 +31,7 @@ void main() {
     float gy = luma(texture(u_tex, v_uv + vec2(0.0, px.y)).rgb)
              - luma(texture(u_tex, v_uv - vec2(0.0, px.y)).rgb);
     vec2 grad = vec2(gx, gy);
-    vec2 flow = -it * grad / (dot(grad, grad) + 0.001);
+    vec2 flow = -it * grad / (dot(grad, grad) + 0.001) * u_p0;
     flow = clamp(flow, vec2(-0.05), vec2(0.05)); // keep it from running away
 
     vec3 moshed = texture(u_prev, clamp(v_uv - flow, 0.0, 1.0)).rgb;

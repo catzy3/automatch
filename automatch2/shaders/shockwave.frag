@@ -5,6 +5,8 @@ uniform sampler2D u_tex;
 uniform float u_mix;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_p0; // strength
+uniform float u_p1; // ring frequency
 
 // Radial ripple emanating from the centre — refraction shockwave.
 void main() {
@@ -13,7 +15,7 @@ void main() {
     // correct for aspect so rings stay circular
     c.x *= u_resolution.x / max(u_resolution.y, 1.0);
     float d = length(c);
-    float wave = sin(d * 45.0 - u_time * 6.0) * exp(-d * 3.5) * 0.02;
+    float wave = sin(d * 45.0 * u_p1 - u_time * 6.0) * exp(-d * 3.5) * 0.02 * u_p0;
     vec2 dir = c / (d + 1e-5);
     dir.x /= u_resolution.x / max(u_resolution.y, 1.0);
     vec2 uv = clamp(v_uv + dir * wave, 0.0, 1.0);

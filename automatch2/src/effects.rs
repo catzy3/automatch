@@ -10,20 +10,41 @@
 use crate::gfx::{self, make_tex_rgba, PingPong, Program, Quad};
 use eframe::glow::{self, HasContext};
 
-/// One shader pass with its on/off state and dry/wet mix.
+/// A named, range-bounded float parameter exposed to the shader as a uniform.
+#[derive(Clone)]
+pub struct Param {
+    pub label: &'static str,
+    pub uniform: &'static str,
+    pub value: f32,
+    pub min: f32,
+    pub max: f32,
+}
+
+pub fn p(label: &'static str, uniform: &'static str, value: f32, min: f32, max: f32) -> Param {
+    Param { label, uniform, value, min, max }
+}
+
+/// One shader pass with its on/off state, dry/wet mix and tunable params.
 pub struct Effect {
     pub name: &'static str,
     pub enabled: bool,
     pub mix: f32,
+    pub params: Vec<Param>,
     prog: Program,
 }
 
 impl Effect {
-    unsafe fn new(gl: &glow::Context, name: &'static str, frag: &str) -> Result<Self, String> {
+    unsafe fn new(
+        gl: &glow::Context,
+        name: &'static str,
+        frag: &str,
+        params: Vec<Param>,
+    ) -> Result<Self, String> {
         Ok(Self {
             name,
             enabled: false,
             mix: 1.0,
+            params,
             prog: Program::new(gl, gfx::VS_FULLSCREEN, frag)
                 .map_err(|e| format!("{name}: {e}"))?,
         })
@@ -36,28 +57,45 @@ impl Effect {
     }
 }
 
-/// Built-in effects: (name, fragment source). Diverse on purpose — warp,
-/// dispersion, CRT, channel split — not "squares/recolors".
-fn builtin() -> Vec<(&'static str, &'static str)> {
+/// Built-in effects: (name, fragment source, params). Diverse on purpose — warp,
+/// dispersion, CRT, channel split — not "squares/recolors". Many effects expose
+/// tunable params (uniform `u_pN`); those without just use mix.
+fn builtin() -> Vec<(&'static str, &'static str, Vec<Param>)> {
     vec![
-        ("rgb_split", include_str!("../shaders/rgb_split.frag")),
-        ("wave_warp", include_str!("../shaders/wave_warp.frag")),
-        ("chroma_aberration", include_str!("../shaders/chroma_aberration.frag")),
-        ("crt_scanlines", include_str!("../shaders/crt_scanlines.frag")),
-        ("vhs", include_str!("../shaders/vhs.frag")),
-        ("shockwave", include_str!("../shaders/shockwave.frag")),
-        ("pixel_stretch", include_str!("../shaders/pixel_stretch.frag")),
-        ("kaleidoscope", include_str!("../shaders/kaleidoscope.frag")),
-        ("halftone", include_str!("../shaders/halftone.frag")),
-        ("scan_glitch", include_str!("../shaders/scan_glitch.frag")),
-        ("echo_trails", include_str!("../shaders/echo_trails.frag")),
-        ("feedback_zoom", include_str!("../shaders/feedback_zoom.frag")),
-        ("time_displacement", include_str!("../shaders/time_displacement.frag")),
-        ("optic_flow_mosh", include_str!("../shaders/optic_flow_mosh.frag")),
-        ("neon_edge", include_str!("../shaders/neon_edge.frag")),
-        ("light_leaks", include_str!("../shaders/light_leaks.frag")),
-        ("beat_punch", include_str!("../shaders/beat_punch.frag")),
-        ("_invert", include_str!("../shaders/_invert.frag")),
+        ("rgb_split", include_str!("../shaders/rgb_split.frag"),
+            vec![p("Сдвиг", "u_p0", 1.0, 0.0, 4.0), p("Скорость", "u_p1", 1.0, 0.0, 6.0)]),
+        ("wave_warp", include_str!("../shaders/wave_warp.frag"),
+            vec![p("Сила", "u_p0", 1.0, 0.0, 4.0), p("Частота", "u_p1", 1.0, 0.2, 4.0)]),
+        ("chroma_aberration", include_str!("../shaders/chroma_aberration.frag"),
+            vec![p("Сила", "u_p0", 1.0, 0.0, 3.0)]),
+        ("crt_scanlines", include_str!("../shaders/crt_scanlines.frag"),
+            vec![p("Скан-линии", "u_p0", 1.0, 0.0, 2.0), p("Виньетка", "u_p1", 1.0, 0.0, 2.0)]),
+        ("vhs", include_str!("../shaders/vhs.frag"),
+            vec![p("Интенсивность", "u_p0", 1.0, 0.0, 2.5)]),
+        ("shockwave", include_str!("../shaders/shockwave.frag"),
+            vec![p("Сила", "u_p0", 1.0, 0.0, 3.0), p("Частота", "u_p1", 1.0, 0.3, 3.0)]),
+        ("pixel_stretch", include_str!("../shaders/pixel_stretch.frag"),
+            vec![p("Скорость", "u_p0", 1.0, 0.0, 4.0)]),
+        ("kaleidoscope", include_str!("../shaders/kaleidoscope.frag"),
+            vec![p("Сегменты", "u_p0", 6.0, 2.0, 16.0), p("Вращение", "u_p1", 1.0, 0.0, 4.0)]),
+        ("halftone", include_str!("../shaders/halftone.frag"),
+            vec![p("Размер точек", "u_p0", 1.0, 0.3, 3.0)]),
+        ("scan_glitch", include_str!("../shaders/scan_glitch.frag"),
+            vec![p("Кол-во разрывов", "u_p0", 1.0, 0.0, 3.0)]),
+        ("echo_trails", include_str!("../shaders/echo_trails.frag"),
+            vec![p("Затухание", "u_p0", 1.0, 0.0, 1.0)]),
+        ("feedback_zoom", include_str!("../shaders/feedback_zoom.frag"),
+            vec![p("Зум", "u_p0", 1.0, 0.0, 3.0)]),
+        ("time_displacement", include_str!("../shaders/time_displacement.frag"), vec![]),
+        ("optic_flow_mosh", include_str!("../shaders/optic_flow_mosh.frag"),
+            vec![p("Сила потока", "u_p0", 1.0, 0.0, 3.0)]),
+        ("neon_edge", include_str!("../shaders/neon_edge.frag"),
+            vec![p("Порог", "u_p0", 1.0, 0.2, 3.0)]),
+        ("light_leaks", include_str!("../shaders/light_leaks.frag"),
+            vec![p("Сила", "u_p0", 1.0, 0.0, 2.5)]),
+        ("beat_punch", include_str!("../shaders/beat_punch.frag"),
+            vec![p("Зум-удар", "u_p0", 1.0, 0.0, 3.0)]),
+        ("_invert", include_str!("../shaders/_invert.frag"), vec![]),
     ]
 }
 
@@ -80,8 +118,8 @@ impl EffectChain {
     pub unsafe fn new(gl: &glow::Context) -> Result<Self, String> {
         let quad = Quad::new(gl)?;
         let mut effects = Vec::new();
-        for (name, src) in builtin() {
-            effects.push(Effect::new(gl, name, src)?);
+        for (name, src, params) in builtin() {
+            effects.push(Effect::new(gl, name, src, params)?);
         }
         Ok(Self {
             quad,
@@ -226,6 +264,9 @@ impl EffectChain {
                 eff.prog.set_i32(gl, "u_history_n", HISTORY_N);
                 eff.prog.set_i32(gl, "u_history_head", self.history_head);
                 eff.prog.set_f32(gl, "u_beat", self.beat); // skipped if undeclared
+                for prm in &eff.params {
+                    eff.prog.set_f32(gl, prm.uniform, prm.value);
+                }
                 eff.prog.set_f32(gl, "u_mix", eff.mix);
                 eff.prog.set_f32(gl, "u_time", time);
                 eff.prog.set_vec2(gl, "u_resolution", w as f32, h as f32);
@@ -386,6 +427,45 @@ pub fn selftest_flow(gl: &glow::Context) -> Result<String, String> {
             Ok(format!("stable over 6 frames, range {mn}..{mx}, altered=yes"))
         } else {
             Err(format!("changed={changed}, range {mn}..{mx}"))
+        }
+    }
+}
+
+/// Headless check that a parameter reaches the shader: rgb_split with offset
+/// param = 0 leaves an edge frame intact; a large offset shifts it — the two
+/// outputs must differ, proving param uniforms are wired.
+pub fn selftest_params(gl: &glow::Context) -> Result<String, String> {
+    unsafe {
+        let mut chain = EffectChain::new(gl)?;
+        for e in chain.effects.iter_mut() {
+            e.enabled = e.name == "rgb_split";
+            e.mix = 1.0;
+        }
+        let (w, h) = (8, 2);
+        let mut edge = Vec::new(); // left black, right white
+        for _y in 0..h {
+            for x in 0..w {
+                let v = if x < w / 2 { 0u8 } else { 255 };
+                edge.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let set_p0 = |chain: &mut EffectChain, val: f32| {
+            if let Some(e) = chain.effects.iter_mut().find(|e| e.name == "rgb_split") {
+                if let Some(p) = e.params.get_mut(0) {
+                    p.value = val;
+                }
+            }
+        };
+        set_p0(&mut chain, 0.0);
+        let out_a = chain.process(gl, &edge, w, h, 0.0)?;
+        set_p0(&mut chain, 4.0);
+        let out_b = chain.process(gl, &edge, w, h, 0.0)?;
+        chain.destroy(gl);
+        let diff: i64 = out_a.iter().zip(&out_b).map(|(a, b)| (*a as i64 - *b as i64).abs()).sum();
+        if diff > 50 {
+            Ok(format!("rgb_split offset param changes output (Σdiff={diff})"))
+        } else {
+            Err(format!("param had no effect (Σdiff={diff})"))
         }
     }
 }
