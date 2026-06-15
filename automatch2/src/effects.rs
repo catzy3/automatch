@@ -24,10 +24,37 @@ pub fn p(label: &'static str, uniform: &'static str, value: f32, min: f32, max: 
     Param { label, uniform, value, min, max }
 }
 
-/// One shader pass with its on/off state, dry/wet mix and tunable params.
+/// Matrix cell state (v1 GL1TCH semantics): Off = not applied, On = always
+/// applied, Random = part of the dice pool (re-rolled on/off), Locked = always
+/// applied and protected from KILL ALL / the dice. Drives `Effect::enabled`.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub enum EffectMode {
+    #[default]
+    Off,
+    On,
+    Random,
+    Locked,
+}
+
+impl EffectMode {
+    /// Cycle Off→On→Random→Locked→Off (one matrix-cell click).
+    pub fn next(self) -> Self {
+        match self {
+            EffectMode::Off => EffectMode::On,
+            EffectMode::On => EffectMode::Random,
+            EffectMode::Random => EffectMode::Locked,
+            EffectMode::Locked => EffectMode::Off,
+        }
+    }
+}
+
+/// One shader pass with its matrix state, dry/wet mix and tunable params.
+/// `enabled` is the render flag the chain reads; `mode` is the matrix state
+/// that drives it (Random's enabled is re-rolled by the dice button).
 pub struct Effect {
     pub name: &'static str,
     pub enabled: bool,
+    pub mode: EffectMode,
     pub mix: f32,
     pub params: Vec<Param>,
     prog: Program,
@@ -43,6 +70,7 @@ impl Effect {
         Ok(Self {
             name,
             enabled: false,
+            mode: EffectMode::Off,
             mix: 1.0,
             params,
             prog: Program::new(gl, gfx::VS_FULLSCREEN, frag)
@@ -246,6 +274,8 @@ impl EffectChain {
     pub fn set(&mut self, name: &str, enabled: bool, mix: f32) {
         if let Some(e) = self.effects.iter_mut().find(|e| e.name == name) {
             e.enabled = enabled;
+            // keep the matrix state in sync (presets toggle via this path)
+            e.mode = if enabled { EffectMode::On } else { EffectMode::Off };
             e.mix = mix;
         }
     }
@@ -263,6 +293,7 @@ impl EffectChain {
     pub fn disable_all(&mut self) {
         for e in &mut self.effects {
             e.enabled = false;
+            e.mode = EffectMode::Off;
         }
     }
 

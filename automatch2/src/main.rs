@@ -58,6 +58,9 @@ impl Session {
         for es in &self.effects {
             if let Some(e) = chain.effects.iter_mut().find(|e| e.name == es.name) {
                 e.enabled = es.enabled;
+                // sessions persist enabled only → On/Off; Random/Locked are runtime
+                // ponytail: add a serde `mode` field if matrix states must persist
+                e.mode = if es.enabled { effects::EffectMode::On } else { effects::EffectMode::Off };
                 e.mix = es.mix;
                 for (i, v) in es.params.iter().enumerate() {
                     if let Some(p) = e.params.get_mut(i) {
@@ -632,21 +635,59 @@ impl eframe::App for AutomatchApp {
             }
             ui.separator();
 
-            ui.strong("Цепочка эффектов");
+            ui.strong("Матрица эффектов");
+            ui.colored_label(C_DIM, "клик: off → on → random → locked");
+            let frames = self.frames;
             if let Some(chain) = self.chain.as_mut() {
-                for e in chain.effects.iter_mut().filter(|e| e.is_featured()) {
-                    ui.checkbox(&mut e.enabled, e.name);
-                    if e.enabled {
-                        ui.indent(e.name, |ui| {
-                            ui.add(egui::Slider::new(&mut e.mix, 0.0..=1.0).text("mix"));
-                            for prm in e.params.iter_mut() {
-                                ui.add(
-                                    egui::Slider::new(&mut prm.value, prm.min..=prm.max)
-                                        .text(prm.label),
-                                );
-                            }
-                        });
+                // ── dice / kill row ──
+                ui.horizontal(|ui| {
+                    if ui.button("🎲 Рандом").on_hover_text("Перекинуть Random-эффекты").clicked() {
+                        let mut s = frames.wrapping_mul(2654435761).max(1);
+                        for e in chain.effects.iter_mut().filter(|e| e.mode == effects::EffectMode::Random) {
+                            e.enabled = crate::timeline::next_rand(&mut s) & 1 == 0;
+                        }
                     }
+                    if ui.button("✕ KILL ALL").on_hover_text("Выключить всё, кроме Locked").clicked() {
+                        for e in chain.effects.iter_mut() {
+                            if e.mode != effects::EffectMode::Locked {
+                                e.mode = effects::EffectMode::Off;
+                                e.enabled = false;
+                            }
+                        }
+                    }
+                });
+                // ── matrix grid: one cycling cell per featured effect ──
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                    for e in chain.effects.iter_mut().filter(|e| e.is_featured()) {
+                        let (accent, fill) = mode_cell_style(e.mode);
+                        let label = egui::RichText::new(abbrev(e.name)).monospace().size(11.0).color(accent);
+                        let cell = egui::Button::new(label)
+                            .fill(fill)
+                            .min_size(egui::vec2(54.0, 26.0))
+                            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.7)));
+                        if ui.add(cell).on_hover_text(e.name).clicked() {
+                            e.mode = e.mode.next();
+                            e.enabled = match e.mode {
+                                effects::EffectMode::On | effects::EffectMode::Locked => true,
+                                effects::EffectMode::Off => false,
+                                effects::EffectMode::Random => {
+                                    let mut s = frames.wrapping_mul(40503).max(1);
+                                    crate::timeline::next_rand(&mut s) & 1 == 0
+                                }
+                            };
+                        }
+                    }
+                });
+                // ── mix + params for every currently-applied effect ──
+                ui.add_space(4.0);
+                for e in chain.effects.iter_mut().filter(|e| e.is_featured() && e.enabled) {
+                    egui::CollapsingHeader::new(e.name).id_source(e.name).show(ui, |ui| {
+                        ui.add(egui::Slider::new(&mut e.mix, 0.0..=1.0).text("mix"));
+                        for prm in e.params.iter_mut() {
+                            ui.add(egui::Slider::new(&mut prm.value, prm.min..=prm.max).text(prm.label));
+                        }
+                    });
                 }
             } else {
                 ui.colored_label(c(false), "цепочка недоступна");
@@ -901,8 +942,42 @@ fn presets() -> Vec<Preset> {
     ]
 }
 
-/// Retro-glitch egui theme: near-black panels, magenta/cyan accents, sharp
-/// corners, monospace everywhere — the "shi o kiku" aesthetic.
+// v1 GL1TCH matrix-state palette (exact values from automatch_gui.py).
+const C_DIM: egui::Color32 = egui::Color32::from_rgb(110, 120, 138);
+const C_GREEN: egui::Color32 = egui::Color32::from_rgb(164, 255, 90);
+const C_MAGENTA: egui::Color32 = egui::Color32::from_rgb(255, 34, 153);
+const C_CYAN: egui::Color32 = egui::Color32::from_rgb(0, 216, 212);
+const C_FRAME: egui::Color32 = egui::Color32::from_rgb(24, 24, 32);
+
+/// Short uppercase tag for a matrix cell: token0[:4]+token1[:2], else first 6.
+/// ponytail: rare collisions (pixel_*) disambiguated by the hover tooltip.
+fn abbrev(name: &str) -> String {
+    let n = name.trim_start_matches('_');
+    let mut it = n.split('_');
+    let a = it.next().unwrap_or(n);
+    let s = match it.next() {
+        Some(b) => format!(
+            "{}{}",
+            a.chars().take(4).collect::<String>(),
+            b.chars().take(2).collect::<String>()
+        ),
+        None => a.chars().take(6).collect(),
+    };
+    s.to_uppercase()
+}
+
+/// (accent for text/border, cell fill) for a matrix state — v1 colour mapping.
+fn mode_cell_style(m: effects::EffectMode) -> (egui::Color32, egui::Color32) {
+    match m {
+        effects::EffectMode::Off => (C_DIM, C_FRAME),
+        effects::EffectMode::On => (C_GREEN, C_GREEN.gamma_multiply(0.16)),
+        effects::EffectMode::Random => (C_MAGENTA, C_MAGENTA.gamma_multiply(0.16)),
+        effects::EffectMode::Locked => (C_CYAN, C_CYAN.gamma_multiply(0.16)),
+    }
+}
+
+/// Retro-glitch egui theme: near-black panels, magenta/cyan/green accents,
+/// sharp corners, monospace everywhere — the "shi o kiku" aesthetic.
 fn apply_retro_theme(ctx: &egui::Context) {
     use egui::{Color32, Rounding, Stroke};
     let magenta = Color32::from_rgb(255, 46, 136);
@@ -934,6 +1009,9 @@ fn apply_retro_theme(ctx: &egui::Context) {
     }
     v.widgets.hovered.bg_stroke = Stroke::new(1.0, cyan);
     v.widgets.active.bg_stroke = Stroke::new(1.0, magenta);
+    // green = positive/active accent (checkmarks, pressed text) — v1 CheckMark
+    let green = Color32::from_rgb(164, 255, 90);
+    v.widgets.active.fg_stroke = Stroke::new(1.0, green);
     style.visuals = v;
     style.override_text_style = Some(egui::TextStyle::Monospace);
     ctx.set_style(style);
@@ -952,4 +1030,17 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(|cc| Ok(Box::new(AutomatchApp::new(cc)))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::abbrev;
+    #[test]
+    fn abbrev_disambiguates_and_uppercases() {
+        // collision-prone names must yield distinct cell tags
+        assert_ne!(abbrev("crt_monitor"), abbrev("crt_scanlines"));
+        assert_ne!(abbrev("pixel_sort"), abbrev("pixel_stretch"));
+        assert_eq!(abbrev("vhs"), "VHS");
+        assert_eq!(abbrev("rgb_split"), "RGBSP");
+    }
 }
