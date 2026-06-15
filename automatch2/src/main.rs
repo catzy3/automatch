@@ -528,6 +528,24 @@ impl eframe::App for AutomatchApp {
             ui.checkbox(&mut self.mod_demo, "ModMatrix демо: LFO-пульс chroma");
             ui.separator();
 
+            ui.strong("Пресеты (1 клик)");
+            if let Some(chain) = self.chain.as_mut() {
+                ui.horizontal_wrapped(|ui| {
+                    for (name, items) in presets() {
+                        if ui.button(name).clicked() {
+                            chain.disable_all();
+                            for (eff, mix, params) in &items {
+                                chain.set(eff, true, *mix);
+                                for (idx, val) in params {
+                                    chain.set_param(eff, *idx, *val);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            ui.separator();
+
             ui.strong("Цепочка эффектов");
             if let Some(chain) = self.chain.as_mut() {
                 for e in chain.effects.iter_mut().filter(|e| e.is_featured()) {
@@ -664,6 +682,46 @@ impl eframe::App for AutomatchApp {
 
         ctx.request_repaint();
     }
+}
+
+/// One-click looks: (название, [(эффект, mix, [(param_idx, value)])]).
+type Preset = (&'static str, Vec<(&'static str, f32, Vec<(usize, f32)>)>);
+
+fn presets() -> Vec<Preset> {
+    vec![
+        ("Чисто", vec![]),
+        ("Датамош", vec![
+            ("optic_flow_mosh", 1.0, vec![(0, 2.0)]),
+            ("chroma_aberration", 0.6, vec![(0, 1.6)]),
+            ("scan_glitch", 0.5, vec![(0, 1.6)]),
+        ]),
+        ("Ретро VHS", vec![
+            ("vhs", 0.9, vec![(0, 1.4)]),
+            ("crt_scanlines", 0.6, vec![]),
+            ("rgb_split", 0.5, vec![(0, 1.2)]),
+        ]),
+        ("Дрим", vec![
+            ("feedback_zoom", 0.7, vec![(0, 1.6)]),
+            ("light_leaks", 0.6, vec![(0, 1.3)]),
+            ("chroma_aberration", 0.4, vec![]),
+        ]),
+        ("Калейдо", vec![
+            ("kaleidoscope", 1.0, vec![(0, 8.0), (1, 1.5)]),
+            ("chroma_aberration", 0.4, vec![]),
+        ]),
+        ("Время", vec![
+            ("time_displacement", 0.8, vec![]),
+            ("echo_trails", 0.5, vec![(0, 0.9)]),
+        ]),
+        ("Неон", vec![
+            ("neon_edge", 0.9, vec![(0, 1.4)]),
+            ("feedback_zoom", 0.4, vec![(0, 1.0)]),
+        ]),
+        ("Бит-удар", vec![
+            ("beat_punch", 1.0, vec![(0, 1.5)]),
+            ("rgb_split", 0.4, vec![]),
+        ]),
+    ]
 }
 
 /// Retro-glitch egui theme: near-black panels, magenta/cyan accents, sharp

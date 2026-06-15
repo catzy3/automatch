@@ -147,6 +147,22 @@ impl EffectChain {
         }
     }
 
+    /// Set one parameter (by index) of a named effect.
+    pub fn set_param(&mut self, name: &str, idx: usize, val: f32) {
+        if let Some(e) = self.effects.iter_mut().find(|e| e.name == name) {
+            if let Some(p) = e.params.get_mut(idx) {
+                p.value = val;
+            }
+        }
+    }
+
+    /// Disable every effect (used before applying a preset).
+    pub fn disable_all(&mut self) {
+        for e in &mut self.effects {
+            e.enabled = false;
+        }
+    }
+
     unsafe fn ensure(&mut self, gl: &glow::Context, w: i32, h: i32) -> Result<(), String> {
         if self.size == (w, h) && self.pp.is_some() {
             return Ok(());
