@@ -715,9 +715,12 @@ type Preset = (&'static str, Vec<(&'static str, f32, Vec<(usize, f32)>)>);
 fn presets() -> Vec<Preset> {
     vec![
         ("Чисто", vec![]),
-        ("Датамош", vec![
+        ("Датамош (v1)", vec![
+            ("datamosh", 1.0, vec![(0, 0.7), (1, 0.7), (2, 2.5), (3, 0.08), (5, 0.6)]),
+            ("chroma_aberration", 0.5, vec![(0, 1.4)]),
+        ]),
+        ("Флоу-мош", vec![
             ("optic_flow_mosh", 1.0, vec![(0, 2.0)]),
-            ("chroma_aberration", 0.6, vec![(0, 1.6)]),
             ("scan_glitch", 0.5, vec![(0, 1.6)]),
         ]),
         ("Ретро VHS", vec![
