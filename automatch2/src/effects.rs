@@ -62,12 +62,34 @@ impl Effect {
 /// tunable params (uniform `u_pN`); those without just use mix.
 fn builtin() -> Vec<(&'static str, &'static str, Vec<Param>)> {
     vec![
-        ("rgb_split", include_str!("../shaders/rgb_split.frag"),
-            vec![p("Сдвиг", "u_p0", 1.0, 0.0, 4.0), p("Скорость", "u_p1", 1.0, 0.0, 6.0)]),
+        ("rgb_split", include_str!("../shaders/rgb_split.frag"), vec![
+            p("Смещение", "u_shift", 0.3, 0.0, 1.0),
+            p("Частота волны", "u_wave_freq", 8.0, 0.0, 32.0),
+            p("Скорость волны", "u_wave_speed", 1.0, 0.0, 4.0),
+        ]),
         ("wave_warp", include_str!("../shaders/wave_warp.frag"),
             vec![p("Сила", "u_p0", 1.0, 0.0, 4.0), p("Частота", "u_p1", 1.0, 0.2, 4.0)]),
-        ("chroma_aberration", include_str!("../shaders/chroma_aberration.frag"),
-            vec![p("Сила", "u_p0", 1.0, 0.0, 3.0)]),
+        ("chroma_aberration", include_str!("../shaders/chromatic_aberration.frag"), vec![
+            p("Смещение", "u_offset", 0.012, 0.0, 0.05),
+            p("Радиус", "u_radial", 0.8, 0.0, 1.0),
+            p("Угол", "u_angle", 0.0, 0.0, 6.283),
+            p("Спин", "u_chromatic_spin", 0.0, 0.0, 1.0),
+        ]),
+        ("swirl", include_str!("../shaders/swirl.frag"), vec![
+            p("Сила", "u_strength", 3.0, 0.0, 10.0),
+            p("Радиус", "u_radius", 0.5, 0.1, 1.0),
+            p("Центр X", "u_cx", 0.5, 0.0, 1.0),
+            p("Центр Y", "u_cy", 0.5, 0.0, 1.0),
+            p("Анимация", "u_animate", 0.0, 0.0, 1.0),
+        ]),
+        ("found_footage", include_str!("../shaders/found_footage.frag"), vec![
+            p("Дропауты", "u_dropout_density", 0.4, 0.0, 1.0),
+            p("Сила дропаутов", "u_dropout_strength", 0.7, 0.0, 1.0),
+            p("Варп строк", "u_warp_amount", 0.008, 0.0, 0.03),
+            p("Гост-эхо", "u_ghost_opacity", 0.12, 0.0, 0.5),
+            p("Chroma bleed", "u_chroma_bleed", 2.5, 0.0, 8.0),
+            p("Luma crush", "u_luma_crush", 0.4, 0.0, 1.0),
+        ]),
         ("crt_scanlines", include_str!("../shaders/crt_scanlines.frag"),
             vec![p("Скан-линии", "u_p0", 1.0, 0.0, 2.0), p("Виньетка", "u_p1", 1.0, 0.0, 2.0)]),
         ("vhs", include_str!("../shaders/vhs.frag"),
@@ -489,7 +511,7 @@ pub fn selftest_params(gl: &glow::Context) -> Result<String, String> {
             e.enabled = e.name == "rgb_split";
             e.mix = 1.0;
         }
-        let (w, h) = (8, 2);
+        let (w, h) = (64, 16); // big enough that rgb_split's radial offset spans pixels
         let mut edge = Vec::new(); // left black, right white
         for _y in 0..h {
             for x in 0..w {
@@ -506,7 +528,7 @@ pub fn selftest_params(gl: &glow::Context) -> Result<String, String> {
         };
         set_p0(&mut chain, 0.0);
         let out_a = chain.process(gl, &edge, w, h, 0.0)?;
-        set_p0(&mut chain, 4.0);
+        set_p0(&mut chain, 1.0); // max shift
         let out_b = chain.process(gl, &edge, w, h, 0.0)?;
         chain.destroy(gl);
         let diff: i64 = out_a.iter().zip(&out_b).map(|(a, b)| (*a as i64 - *b as i64).abs()).sum();
