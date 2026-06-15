@@ -431,10 +431,10 @@ impl eframe::App for AutomatchApp {
             }
         }
 
-        egui::SidePanel::left("status").min_width(330.0).show(ctx, |ui| {
+        egui::SidePanel::right("inspector").min_width(310.0).show(ctx, |ui| {
             ui.heading("automatch 2");
-            ui.label("C0–C5 + ModMatrix · окно/GFX/медиа/эффекты/аудио/экспорт");
             ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
             if ui.button("📂 Загрузить видео…").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("video", &["mp4", "mov", "mkv", "webm", "avi", "m4v"])
@@ -508,11 +508,6 @@ impl eframe::App for AutomatchApp {
                 }
             }
             ui.separator();
-            ui.label(format!("OpenGL: {}", self.gl_version));
-            let dt = ctx.input(|i| i.unstable_dt).max(1e-4);
-            ui.label(format!("FPS: {:.0}   frames: {}", 1.0 / dt, self.frames));
-            ui.separator();
-
             let c = |ok: bool| {
                 if ok {
                     egui::Color32::from_rgb(80, 220, 120)
@@ -520,15 +515,22 @@ impl eframe::App for AutomatchApp {
                     egui::Color32::from_rgb(230, 80, 80)
                 }
             };
-            ui.colored_label(c(self.gfx_ok), format!("GFX: {}", self.gfx_selftest));
-            ui.colored_label(c(self.media_ok), format!("MEDIA: {}", self.media_selftest));
-            ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
-            ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
-            ui.colored_label(c(self.audio_file_ok), format!("AUDIO-FILE: {}", self.audio_file_selftest));
-            ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
-            ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
-            ui.colored_label(c(self.datamosh_ok), format!("DATAMOSH: {}", self.datamosh_selftest));
-            ui.colored_label(c(self.modmatrix_ok), format!("MODMATRIX: {}", self.modmatrix_selftest));
+            // dev diagnostics tucked away — not in the user's face
+            ui.collapsing("⚙ Диагностика", |ui| {
+                ui.label(format!("OpenGL: {}", self.gl_version));
+                let dt = ctx.input(|i| i.unstable_dt).max(1e-4);
+                ui.label(format!("FPS: {:.0}   кадров: {}", 1.0 / dt, self.frames));
+                ui.separator();
+                ui.colored_label(c(self.gfx_ok), format!("GFX: {}", self.gfx_selftest));
+                ui.colored_label(c(self.media_ok), format!("MEDIA: {}", self.media_selftest));
+                ui.colored_label(c(self.effects_ok), format!("EFFECTS: {}", self.effects_selftest));
+                ui.colored_label(c(self.audio_ok), format!("AUDIO: {}", self.audio_selftest));
+                ui.colored_label(c(self.audio_file_ok), format!("AUDIO-FILE: {}", self.audio_file_selftest));
+                ui.colored_label(c(self.timeline_ok), format!("TIMELINE: {}", self.timeline_selftest));
+                ui.colored_label(c(self.export_ok), format!("EXPORT: {}", self.export_selftest));
+                ui.colored_label(c(self.datamosh_ok), format!("DATAMOSH: {}", self.datamosh_selftest));
+                ui.colored_label(c(self.modmatrix_ok), format!("MODMATRIX: {}", self.modmatrix_selftest));
+            });
             ui.separator();
             ui.checkbox(&mut self.mod_demo, "ModMatrix демо: LFO-пульс chroma");
             ui.separator();
@@ -590,6 +592,7 @@ impl eframe::App for AutomatchApp {
             if !self.export_status.is_empty() {
                 ui.label(&self.export_status);
             }
+            }); // ScrollArea
         });
 
         egui::TopBottomPanel::bottom("timeline").min_height(86.0).show(ctx, |ui| {
