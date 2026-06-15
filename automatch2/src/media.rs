@@ -154,6 +154,38 @@ impl VideoReader {
         })
     }
 
+    /// Like `open_scaled` but starts decoding `start_sec` into the clip
+    /// (fast input seek via `-ss` before `-i`). Used for random montage
+    /// in-points so a reused clip shows different footage each cut.
+    pub fn open_scaled_at(
+        ffmpeg: &Path,
+        file: &Path,
+        w: i32,
+        h: i32,
+        start_sec: f32,
+    ) -> Result<Self, String> {
+        if start_sec <= 1e-3 {
+            return Self::open_scaled(ffmpeg, file, w, h);
+        }
+        let mut child = Command::new(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-ss", &format!("{start_sec:.3}"), "-i"])
+            .arg(file)
+            .args(["-vf", &format!("scale={w}:{h}"),
+                   "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn ffmpeg failed: {e}"))?;
+        let stdout = child.stdout.take().ok_or_else(|| "no ffmpeg stdout".to_owned())?;
+        Ok(Self {
+            child,
+            stdout: std::io::BufReader::new(stdout),
+            w,
+            h,
+            frame_bytes: (w as usize) * (h as usize) * 4,
+        })
+    }
+
     pub fn frame_bytes(&self) -> usize {
         self.frame_bytes
     }

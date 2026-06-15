@@ -9,11 +9,21 @@
 
 #![allow(dead_code)]
 
-use crate::media::{ffmpeg_path, probe_dimensions, VideoReader};
+use crate::media::{ffmpeg_path, probe_dimensions, probe_duration, VideoReader};
 use crate::timeline::Cut;
 use std::path::{Path, PathBuf};
 
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi", "m4v"];
+
+/// xorshift64 — deterministic RNG for in-point assignment (preview == render).
+fn next_rand(state: &mut u64) -> u64 {
+    let mut x = *state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    *state = x;
+    x
+}
 
 /// A set of source clips (e.g. a folder the user picked).
 #[derive(Clone, Default)]
@@ -59,7 +69,8 @@ pub struct MontageFrameSource {
     ffmpeg: PathBuf,
     pool: ClipPool,
     cuts: Vec<Cut>,
-    canvas: (i32, i32), // uniform output size every clip is scaled to
+    canvas: (i32, i32),   // uniform output size every clip is scaled to
+    clip_durs: Vec<f32>,  // probed duration (s) per pool path; 0 = unknown
     cur_cut: usize,
     reader: Option<VideoReader>,
     fade: f32,            // crossfade duration at each cut (seconds)
@@ -68,7 +79,7 @@ pub struct MontageFrameSource {
 }
 
 impl MontageFrameSource {
-    pub fn new(pool: ClipPool, cuts: Vec<Cut>) -> Self {
+    pub fn new(pool: ClipPool, mut cuts: Vec<Cut>) -> Self {
         let ffmpeg = ffmpeg_path();
         // canvas = first clip's native size (even dims), else a sane default
         let canvas = pool
@@ -77,11 +88,19 @@ impl MontageFrameSource {
             .and_then(|p| probe_dimensions(&ffmpeg, p).ok())
             .map(|(w, h)| (w / 2 * 2, h / 2 * 2))
             .unwrap_or((1280, 720));
+        // probe each clip's length so we can pick safe random in-points
+        let clip_durs: Vec<f32> = pool
+            .paths
+            .iter()
+            .map(|p| probe_duration(&ffmpeg, p).unwrap_or(0.0))
+            .collect();
+        assign_inpoints(&mut cuts, &clip_durs, pool.len());
         Self {
             ffmpeg,
             pool,
             cuts,
             canvas,
+            clip_durs,
             cur_cut: usize::MAX,
             reader: None,
             fade: 0.15,
@@ -120,6 +139,21 @@ impl MontageFrameSource {
         }
         let clip_idx = self.cuts[ci].clip_idx % self.pool.len();
         let (w, h) = self.canvas;
+        let src_in = self.cuts[ci].src_in;
+        self.reader =
+            VideoReader::open_scaled_at(&self.ffmpeg, &self.pool.paths[clip_idx], w, h, src_in).ok();
+    }
+
+    /// Reopen the current cut's clip from its start — used when a clip runs out
+    /// of frames inside its cut (it was shorter than the cut, or the in-point
+    /// left too little footage), so the loop replays the full clip.
+    fn reopen_loop(&mut self, ci: usize) {
+        self.reader = None;
+        if self.pool.is_empty() || ci >= self.cuts.len() {
+            return;
+        }
+        let clip_idx = self.cuts[ci].clip_idx % self.pool.len();
+        let (w, h) = self.canvas;
         self.reader =
             VideoReader::open_scaled(&self.ffmpeg, &self.pool.paths[clip_idx], w, h).ok();
     }
@@ -146,7 +180,7 @@ impl MontageFrameSource {
             Some(r) => match r.next_frame(buf) {
                 Ok(true) => true,
                 _ => {
-                    self.open_cut(ci); // clip ended inside the cut → loop it
+                    self.reopen_loop(ci); // clip ended inside the cut → loop from start
                     matches!(self.reader.as_mut().map(|r| r.next_frame(buf)), Some(Ok(true)))
                 }
             },
@@ -171,6 +205,29 @@ impl MontageFrameSource {
     }
 }
 
+/// Assign a deterministic random in-point to every cut. The offset is chosen in
+/// `[0, dur - cut_len - tail]` so the clip has enough footage to cover the whole
+/// cut without looping; clips too short for their cut start at 0. Deterministic
+/// in the cut list → preview and render pick identical in-points.
+fn assign_inpoints(cuts: &mut [Cut], clip_durs: &[f32], n_clips: usize) {
+    const TAIL: f32 = 0.05; // keep a little margin before EOF
+    let mut state: u64 =
+        0x9E37_79B9_7F4A_7C15 ^ (cuts.len() as u64).wrapping_mul(0x2545_F491_4F6C_DD1D);
+    for c in cuts.iter_mut() {
+        let r = next_rand(&mut state); // advance every cut (branch-independent)
+        let pi = if n_clips == 0 { 0 } else { c.clip_idx % n_clips };
+        let dur = clip_durs.get(pi).copied().unwrap_or(0.0);
+        let cut_len = (c.t_end - c.t_start).max(0.0);
+        let headroom = dur - cut_len - TAIL;
+        c.src_in = if headroom > 0.10 {
+            let frac = (r >> 11) as f32 / (1u64 << 53) as f32; // 53-bit → [0,1)
+            frac * headroom
+        } else {
+            0.0
+        };
+    }
+}
+
 /// Dominant channel of a tightly-packed RGBA frame: 0=R,1=G,2=B.
 fn dominant_channel(buf: &[u8]) -> usize {
     let (mut r, mut g, mut b) = (0u64, 0u64, 0u64);
@@ -192,7 +249,7 @@ fn dominant_channel(buf: &[u8]) -> usize {
 /// must yield frames that switch colour cut-to-cut — proving clip selection and
 /// per-cut decoding work.
 pub fn selftest() -> Result<String, String> {
-    use crate::media::generate_color_clip;
+    use crate::media::{generate_color_clip, generate_test_clip};
     use crate::timeline::build_timeline;
 
     let ffmpeg = ffmpeg_path();
@@ -228,13 +285,28 @@ pub fn selftest() -> Result<String, String> {
     let (r, _g, b) = avg_rgb(&buf);
     let blended = r > 60 && b > 60; // both red & blue present → dissolve
 
+    // ── part 3: random in-point seek — different start offsets on an animated
+    //    clip must yield different frames (proves open_scaled_at seeks) ──
+    let anim = std::env::temp_dir().join("am2_montage_anim.mp4");
+    generate_test_clip(&ffmpeg, &anim, 64, 48, 2.0)?;
+    let mut f0 = Vec::new();
+    let mut f1 = Vec::new();
+    let seeked = {
+        let mut r0 = VideoReader::open_scaled_at(&ffmpeg, &anim, 64, 48, 0.0).ok();
+        let mut r1 = VideoReader::open_scaled_at(&ffmpeg, &anim, 64, 48, 1.0).ok();
+        let g0 = matches!(r0.as_mut().map(|r| r.next_frame(&mut f0)), Some(Ok(true)));
+        let g1 = matches!(r1.as_mut().map(|r| r.next_frame(&mut f1)), Some(Ok(true)));
+        g0 && g1 && f0.len() == f1.len() && f0 != f1
+    };
+
     let _ = std::fs::remove_file(&red);
     let _ = std::fs::remove_file(&blue);
+    let _ = std::fs::remove_file(&anim);
 
-    if n >= 3 && switched && valid && blended {
-        Ok(format!("{n} cuts {colors:?} alternate; crossfade blends (R={r},B={b})"))
+    if n >= 3 && switched && valid && blended && seeked {
+        Ok(format!("{n} cuts {colors:?} alternate; crossfade blends (R={r},B={b}); in-point seek differs"))
     } else {
-        Err(format!("cuts={n}, colors={colors:?}, switched={switched}, valid={valid}, blended={blended} (R={r},B={b})"))
+        Err(format!("cuts={n}, colors={colors:?}, switched={switched}, valid={valid}, blended={blended} (R={r},B={b}), seeked={seeked}"))
     }
 }
 

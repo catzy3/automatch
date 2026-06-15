@@ -8,6 +8,10 @@ pub struct Cut {
     pub t_start: f32,
     pub t_end: f32,
     pub clip_idx: usize,
+    /// Seconds into the source clip at which this cut begins decoding. 0 = clip
+    /// start. Assigned by the montage layer (it knows clip durations); lets the
+    /// same clip show different footage each time it is reused.
+    pub src_in: f32,
 }
 
 /// xorshift64 — small deterministic RNG (no external crate).
@@ -88,7 +92,7 @@ pub fn build_timeline(
             c
         };
         prev_clip = clip;
-        cuts.push(Cut { t_start, t_end, clip_idx: clip });
+        cuts.push(Cut { t_start, t_end, clip_idx: clip, src_in: 0.0 });
     }
     cuts
 }
