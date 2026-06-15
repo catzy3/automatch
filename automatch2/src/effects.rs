@@ -103,6 +103,14 @@ fn builtin() -> Vec<(&'static str, &'static str, Vec<Param>)> {
             vec![p("Сила", "u_p0", 1.0, 0.0, 2.5)]),
         ("beat_punch", include_str!("../shaders/beat_punch.frag"),
             vec![p("Зум-удар", "u_p0", 1.0, 0.0, 3.0)]),
+        ("liquify", include_str!("../shaders/liquify.frag"), vec![p("Сила", "u_p0", 1.0, 0.0, 3.0), p("Масштаб", "u_p1", 1.0, 0.25, 4.0)]),
+        ("rolling_shutter", include_str!("../shaders/rolling_shutter.frag"), vec![p("Сила", "u_p0", 1.0, 0.0, 3.0), p("Скорость", "u_p1", 1.0, 0.0, 4.0)]),
+        ("bloom_glow", include_str!("../shaders/bloom_glow.frag"), vec![p("Порог свечения", "u_p0", 1.0, 0.0, 2.0), p("Интенсивность", "u_p1", 1.0, 0.0, 3.0)]),
+        ("ascii_mosaic", include_str!("../shaders/ascii_mosaic.frag"), vec![p("Размер ячейки", "u_p0", 1.0, 0.25, 3.0), p("Контраст", "u_p1", 1.0, 0.2, 3.0)]),
+        ("dither_bayer", include_str!("../shaders/dither_bayer.frag"), vec![p("Уровни цвета", "u_p0", 1.0, 0.0, 1.0), p("Размер пикселя", "u_p1", 1.0, 0.0, 1.0)]),
+        ("film_damage", include_str!("../shaders/film_damage.frag"), vec![p("Зерно", "u_p0", 1.0, 0.0, 2.5), p("Повреждения", "u_p1", 1.0, 0.0, 2.5)]),
+        ("mirror_tunnel", include_str!("../shaders/mirror_tunnel.frag"), vec![p("Глубина", "u_p0", 1.0, 0.25, 3.0), p("Вращение", "u_p1", 1.0, -3.0, 3.0)]),
+        ("chroma_pulse", include_str!("../shaders/chroma_pulse.frag"), vec![p("Сила", "u_p0", 1.0, 0.0, 3.0), p("Радиус кольца", "u_p1", 1.0, 0.2, 2.5)]),
         ("_invert", include_str!("../shaders/_invert.frag"), vec![]),
     ]
 }
