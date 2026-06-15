@@ -236,6 +236,78 @@ impl PingPong {
     }
 }
 
+/// Blits a texture into the currently-bound framebuffer at egui's viewport —
+/// used to paint the GPU effect result straight into the egui panel (no CPU
+/// readback). Holds only raw GL handles so it is Copy+Send+Sync and can be
+/// captured by an egui paint callback.
+#[derive(Clone, Copy)]
+pub struct Blitter {
+    program: glow::Program,
+    vao: glow::VertexArray,
+    vbo: glow::Buffer,
+    loc_tex: Option<glow::UniformLocation>,
+    loc_flip: Option<glow::UniformLocation>,
+}
+
+const FS_BLIT: &str = r#"#version 330 core
+in vec2 v_uv;
+out vec4 fragColor;
+uniform sampler2D u_tex;
+uniform int u_flip;
+void main() {
+    vec2 uv = (u_flip == 1) ? vec2(v_uv.x, 1.0 - v_uv.y) : v_uv;
+    fragColor = vec4(texture(u_tex, uv).rgb, 1.0);
+}
+"#;
+
+impl Blitter {
+    pub unsafe fn new(gl: &glow::Context) -> Result<Self, String> {
+        // compile a tiny passthrough program directly (no RefCell Program — must
+        // stay Copy for the paint-callback closure)
+        let prog = Program::new(gl, VS_FULLSCREEN, FS_BLIT)?;
+        let program = prog.raw;
+        let loc_tex = gl.get_uniform_location(program, "u_tex");
+        let loc_flip = gl.get_uniform_location(program, "u_flip");
+        let verts: [f32; 16] = [
+            -1.0, -1.0, 0.0, 0.0,  1.0, -1.0, 1.0, 0.0,
+            -1.0,  1.0, 0.0, 1.0,  1.0,  1.0, 1.0, 1.0,
+        ];
+        let vao = gl.create_vertex_array()?;
+        let vbo = gl.create_buffer()?;
+        gl.bind_vertex_array(Some(vao));
+        gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+        let bytes = core::slice::from_raw_parts(
+            verts.as_ptr() as *const u8, verts.len() * 4);
+        gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes, glow::STATIC_DRAW);
+        let stride = 4 * 4;
+        gl.enable_vertex_attrib_array(0);
+        gl.vertex_attrib_pointer_f32(0, 2, glow::FLOAT, false, stride, 0);
+        gl.enable_vertex_attrib_array(1);
+        gl.vertex_attrib_pointer_f32(1, 2, glow::FLOAT, false, stride, 8);
+        gl.bind_vertex_array(None);
+        Ok(Self { program, vao, vbo, loc_tex, loc_flip })
+    }
+
+    /// Draw `tex` into egui's current viewport rect.
+    pub unsafe fn draw(&self, gl: &glow::Context, tex: glow::Texture, vp: (i32, i32, i32, i32), flip: bool) {
+        let (x, y, w, h) = vp;
+        gl.viewport(x, y, w, h);
+        gl.disable(glow::BLEND);
+        gl.use_program(Some(self.program));
+        gl.active_texture(glow::TEXTURE0);
+        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+        if let Some(l) = self.loc_tex.as_ref() {
+            gl.uniform_1_i32(Some(l), 0);
+        }
+        if let Some(l) = self.loc_flip.as_ref() {
+            gl.uniform_1_i32(Some(l), if flip { 1 } else { 0 });
+        }
+        gl.bind_vertex_array(Some(self.vao));
+        gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
+        gl.bind_vertex_array(None);
+    }
+}
+
 pub const VS_FULLSCREEN: &str = r#"#version 330 core
 layout(location=0) in vec2 in_pos;
 layout(location=1) in vec2 in_uv;

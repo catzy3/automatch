@@ -152,7 +152,9 @@ struct AutomatchApp {
     montage_plan: Option<(montage::ClipPool, Vec<timeline::Cut>, f32, Vec<f32>)>,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
-    video_tex: Option<egui::TextureHandle>,
+    blitter: Option<gfx::Blitter>,
+    result_tex: Option<eframe::glow::Texture>, // GPU effect result (painted directly)
+    result_size: [usize; 2],
     start: Instant,
     frames: u64,
 }
@@ -332,6 +334,12 @@ impl AutomatchApp {
             (p, None)
         };
 
+        // blitter paints the GPU effect result straight into the egui viewport
+        let blitter = cc
+            .gl
+            .as_ref()
+            .and_then(|gl| unsafe { gfx::Blitter::new(gl) }.ok());
+
         Self {
             gl_version,
             gfx_selftest,
@@ -363,7 +371,9 @@ impl AutomatchApp {
             montage_plan,
             player,
             chain,
-            video_tex: None,
+            blitter,
+            result_tex: None,
+            result_size: [0, 0],
             start: Instant::now(),
             frames: 0,
         }
@@ -405,22 +415,17 @@ impl eframe::App for AutomatchApp {
                     }
                     if last < 0.0 { 0.0 } else { (-6.0 * (pt - last)).exp() }
                 });
-                let processed: Option<Vec<u8>> = match (frame.gl(), self.chain.as_mut()) {
-                    (Some(gl), Some(chain)) => {
-                        chain.set_beat(beat);
-                        if let Some(mx) = mod_chroma {
-                            chain.set("chroma_aberration", true, mx);
-                        }
-                        unsafe { chain.process(gl, &p.buf, w, h, time).ok() }
+                // run the chain on the GPU and keep the result texture (no
+                // CPU readback) — painted straight into the viewport below.
+                if let (Some(gl), Some(chain)) = (frame.gl(), self.chain.as_mut()) {
+                    chain.set_beat(beat);
+                    if let Some(mx) = mod_chroma {
+                        chain.set("chroma_aberration", true, mx);
                     }
-                    _ => None,
-                };
-                let data = processed.unwrap_or_else(|| p.buf.clone());
-                if data.len() == (w * h * 4) as usize {
-                    let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &data);
-                    match &mut self.video_tex {
-                        Some(t) => t.set(img, egui::TextureOptions::LINEAR),
-                        None => self.video_tex = Some(ctx.load_texture("video", img, egui::TextureOptions::LINEAR)),
+                    if p.buf.len() == (w * h * 4) as usize {
+                        self.result_tex =
+                            unsafe { chain.process_to_texture(gl, &p.buf, w, h, time) }.ok();
+                        self.result_size = [w as usize, h as usize];
                     }
                 }
             }
@@ -438,7 +443,7 @@ impl eframe::App for AutomatchApp {
                     match Player::open(media::ffmpeg_path(), path, 30.0) {
                         Ok(p) => {
                             self.player = Some(p);
-                            self.video_tex = None;
+                            self.result_tex = None;
                         }
                         Err(e) => eprintln!("open video: {e}"),
                     }
@@ -497,7 +502,7 @@ impl eframe::App for AutomatchApp {
                         let mont = montage::MontageFrameSource::new(pool, cuts);
                         self.player =
                             Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
-                        self.video_tex = None;
+                        self.result_tex = None;
                         self.export_status = format!("монтаж: {n} клипов, {dur:.0}s");
                     }
                 }
@@ -632,18 +637,35 @@ impl eframe::App for AutomatchApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Превью (демо-клип через цепочку)");
-            match (self.player.as_ref(), self.video_tex.as_ref()) {
-                (Some(p), Some(tex)) => {
+            ui.heading("Превью");
+            match (self.result_tex, self.blitter) {
+                (Some(tex), Some(blit)) if self.result_size[0] > 0 => {
+                    // allocate a rect with the video's aspect, fit into the panel
                     let avail = ui.available_size();
-                    let aspect = p.size[0] as f32 / p.size[1] as f32;
-                    let mut w = avail.x.min(p.size[0] as f32 * 2.0);
+                    let aspect = self.result_size[0] as f32 / self.result_size[1] as f32;
+                    let mut w = avail.x;
                     let mut h = w / aspect;
                     if h > avail.y {
                         h = avail.y;
                         w = h * aspect;
                     }
-                    ui.image(egui::load::SizedTexture::new(tex.id(), egui::vec2(w, h)));
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+                    let cb = eframe::egui_glow::CallbackFn::new(move |info, painter| {
+                        let vp = info.viewport_in_pixels();
+                        unsafe {
+                            blit.draw(
+                                painter.gl(),
+                                tex,
+                                (vp.left_px as i32, vp.from_bottom_px as i32,
+                                 vp.width_px as i32, vp.height_px as i32),
+                                true, // flip Y: GL FBO is bottom-up vs egui top-down
+                            );
+                        }
+                    });
+                    ui.painter().add(egui::PaintCallback {
+                        rect,
+                        callback: std::sync::Arc::new(cb),
+                    });
                 }
                 _ => {
                     ui.label("декодирование…");

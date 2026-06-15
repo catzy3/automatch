@@ -203,31 +203,23 @@ impl EffectChain {
         Ok(())
     }
 
-    /// Run the enabled effects over `input` (tightly packed RGBA, w*h*4) and
-    /// read the result back to CPU. If nothing is enabled, returns the input
-    /// unchanged. (Readback is a Phase-3 convenience; Phase 6/8 will keep the
-    /// result on the GPU and paint it straight into the viewport.)
-    pub unsafe fn process(
+    /// Core: upload `input`, run the enabled effects, persist feedback. Returns
+    /// (result_texture, last_fbo). If no effect is active → (input_tex, None).
+    /// Leaves the last FBO bound (so process() can read it back).
+    unsafe fn run_passes(
         &mut self,
         gl: &glow::Context,
         input: &[u8],
         w: i32,
         h: i32,
         time: f32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<(glow::Texture, Option<glow::Framebuffer>), String> {
         self.ensure(gl, w, h)?;
         let itex = self.input_tex.unwrap();
         gl.bind_texture(glow::TEXTURE_2D, Some(itex));
         gl.tex_image_2d(
-            glow::TEXTURE_2D,
-            0,
-            glow::RGBA8 as i32,
-            w,
-            h,
-            0,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            Some(input),
+            glow::TEXTURE_2D, 0, glow::RGBA8 as i32, w, h, 0,
+            glow::RGBA, glow::UNSIGNED_BYTE, Some(input),
         );
         gl.bind_texture(glow::TEXTURE_2D, None);
 
@@ -249,14 +241,12 @@ impl EffectChain {
             .map(|(i, _)| i)
             .collect();
         if active.is_empty() {
-            return Ok(input.to_vec());
+            return Ok((itex, None));
         }
 
         gl.disable(glow::BLEND);
-        // previous chain output → unit 1 (u_prev) for the whole pass
         gl.active_texture(glow::TEXTURE1);
         gl.bind_texture(glow::TEXTURE_2D, self.feedback_tex);
-        // history ring → unit 2 (u_history)
         gl.active_texture(glow::TEXTURE2);
         gl.bind_texture(glow::TEXTURE_2D_ARRAY, self.history_tex);
         gl.active_texture(glow::TEXTURE0);
@@ -275,11 +265,11 @@ impl EffectChain {
                 gl.active_texture(glow::TEXTURE0);
                 gl.bind_texture(glow::TEXTURE_2D, Some(src_tex));
                 eff.prog.set_i32(gl, "u_tex", 0);
-                eff.prog.set_i32(gl, "u_prev", 1); // feedback (skipped if undeclared)
+                eff.prog.set_i32(gl, "u_prev", 1);
                 eff.prog.set_i32(gl, "u_history", 2);
                 eff.prog.set_i32(gl, "u_history_n", HISTORY_N);
                 eff.prog.set_i32(gl, "u_history_head", self.history_head);
-                eff.prog.set_f32(gl, "u_beat", self.beat); // skipped if undeclared
+                eff.prog.set_f32(gl, "u_beat", self.beat);
                 for prm in &eff.params {
                     eff.prog.set_f32(gl, prm.uniform, prm.value);
                 }
@@ -301,18 +291,44 @@ impl EffectChain {
             gl.copy_tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
             gl.active_texture(glow::TEXTURE0);
         }
-        let mut out = vec![0u8; (w * h * 4) as usize];
-        gl.read_pixels(
-            0,
-            0,
-            w,
-            h,
-            glow::RGBA,
-            glow::UNSIGNED_BYTE,
-            glow::PixelPackData::Slice(&mut out),
-        );
+        Ok((src_tex, last_fbo))
+    }
+
+    /// Run the chain and read the result back to CPU (used by export).
+    pub unsafe fn process(
+        &mut self,
+        gl: &glow::Context,
+        input: &[u8],
+        w: i32,
+        h: i32,
+        time: f32,
+    ) -> Result<Vec<u8>, String> {
+        let (_tex, last_fbo) = self.run_passes(gl, input, w, h, time)?;
+        match last_fbo {
+            Some(_) => {
+                let mut out = vec![0u8; (w * h * 4) as usize];
+                gl.read_pixels(0, 0, w, h, glow::RGBA, glow::UNSIGNED_BYTE,
+                    glow::PixelPackData::Slice(&mut out));
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                Ok(out)
+            }
+            None => Ok(input.to_vec()), // no effects → raw frame
+        }
+    }
+
+    /// Run the chain and keep the result on the GPU — returns the result texture
+    /// for direct painting into the viewport (no CPU readback). Used by preview.
+    pub unsafe fn process_to_texture(
+        &mut self,
+        gl: &glow::Context,
+        input: &[u8],
+        w: i32,
+        h: i32,
+        time: f32,
+    ) -> Result<glow::Texture, String> {
+        let (tex, _last_fbo) = self.run_passes(gl, input, w, h, time)?;
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-        Ok(out)
+        Ok(tex)
     }
 
     pub unsafe fn destroy(self, gl: &glow::Context) {
