@@ -15,7 +15,7 @@ pub struct Cut {
 }
 
 /// xorshift64 — small deterministic RNG (no external crate).
-fn next_rand(state: &mut u64) -> u64 {
+pub(crate) fn next_rand(state: &mut u64) -> u64 {
     let mut x = *state;
     x ^= x << 13;
     x ^= x >> 7;

@@ -10,20 +10,10 @@
 #![allow(dead_code)]
 
 use crate::media::{ffmpeg_path, probe_dimensions, probe_duration, VideoReader};
-use crate::timeline::Cut;
+use crate::timeline::{next_rand, Cut};
 use std::path::{Path, PathBuf};
 
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi", "m4v"];
-
-/// xorshift64 — deterministic RNG for in-point assignment (preview == render).
-fn next_rand(state: &mut u64) -> u64 {
-    let mut x = *state;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    *state = x;
-    x
-}
 
 /// A set of source clips (e.g. a folder the user picked).
 #[derive(Clone, Default)]
@@ -69,8 +59,7 @@ pub struct MontageFrameSource {
     ffmpeg: PathBuf,
     pool: ClipPool,
     cuts: Vec<Cut>,
-    canvas: (i32, i32),   // uniform output size every clip is scaled to
-    clip_durs: Vec<f32>,  // probed duration (s) per pool path; 0 = unknown
+    canvas: (i32, i32), // uniform output size every clip is scaled to
     cur_cut: usize,
     reader: Option<VideoReader>,
     fade: f32,            // crossfade duration at each cut (seconds)
@@ -100,7 +89,6 @@ impl MontageFrameSource {
             pool,
             cuts,
             canvas,
-            clip_durs,
             cur_cut: usize::MAX,
             reader: None,
             fade: 0.15,
@@ -131,31 +119,24 @@ impl MontageFrameSource {
         self.cuts.len().saturating_sub(1)
     }
 
-    fn open_cut(&mut self, ci: usize) {
-        self.cur_cut = ci;
+    /// Open the clip for cut `ci`, decoding from `start_sec` (0 = clip start;
+    /// `open_scaled_at` routes 0 to a plain `-i` open). Used both for entering a
+    /// cut at its random in-point and for looping a short clip from the start.
+    fn open_reader(&mut self, ci: usize, start_sec: f32) {
         self.reader = None;
         if self.pool.is_empty() || ci >= self.cuts.len() {
             return;
         }
         let clip_idx = self.cuts[ci].clip_idx % self.pool.len();
         let (w, h) = self.canvas;
-        let src_in = self.cuts[ci].src_in;
         self.reader =
-            VideoReader::open_scaled_at(&self.ffmpeg, &self.pool.paths[clip_idx], w, h, src_in).ok();
+            VideoReader::open_scaled_at(&self.ffmpeg, &self.pool.paths[clip_idx], w, h, start_sec).ok();
     }
 
-    /// Reopen the current cut's clip from its start — used when a clip runs out
-    /// of frames inside its cut (it was shorter than the cut, or the in-point
-    /// left too little footage), so the loop replays the full clip.
-    fn reopen_loop(&mut self, ci: usize) {
-        self.reader = None;
-        if self.pool.is_empty() || ci >= self.cuts.len() {
-            return;
-        }
-        let clip_idx = self.cuts[ci].clip_idx % self.pool.len();
-        let (w, h) = self.canvas;
-        self.reader =
-            VideoReader::open_scaled(&self.ffmpeg, &self.pool.paths[clip_idx], w, h).ok();
+    fn open_cut(&mut self, ci: usize) {
+        self.cur_cut = ci;
+        let src_in = self.cuts.get(ci).map_or(0.0, |c| c.src_in);
+        self.open_reader(ci, src_in);
     }
 
     /// Decode the next frame for playback time `t` into `buf`. Switches clips on
@@ -180,7 +161,7 @@ impl MontageFrameSource {
             Some(r) => match r.next_frame(buf) {
                 Ok(true) => true,
                 _ => {
-                    self.reopen_loop(ci); // clip ended inside the cut → loop from start
+                    self.open_reader(ci, 0.0); // clip ended inside the cut → loop from start
                     matches!(self.reader.as_mut().map(|r| r.next_frame(buf)), Some(Ok(true)))
                 }
             },
