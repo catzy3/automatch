@@ -16,7 +16,7 @@
 | Последнее проверено (verified) | `PARAMS SELFTEST: PASS` (rgb_split offset 0→4, Σdiff=4080); все остальные (EFFECTS/FEEDBACK/BEAT/TIMEDISP/FLOWMOSH/MONTAGE/экспорт) зелёные. Сборка чистая |
 | Следующее действие | (1) **пресеты** (готовые луки = набор эффектов+параметров, 1 клик) + сохранение сессии (serde); (2) random in-points монтажа; (3) экспорт в фоновый поток + прогресс. Затем: egui dockspace, оптимизация (Phase 8 — readback→PaintCallback) |
 | Блокеры | нет |
-| Последний чекпоинт-коммит | `80f9b80` (будет обновлён) |
+| Последний чекпоинт-коммит | `4e6bbbd` (глубокие параметры эффектов) |
 | Ветка/папка | `automatch2/` в репо `catzy3/automatch` |
 | Окружение | Rust stable-msvc через rustup (cargo в `~/.cargo/bin`); MSVC-линкер из VS Community 2022 |
 
