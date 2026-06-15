@@ -1,6 +1,29 @@
 # session-context.md
 *Snapshot for continuing work on **shi o kiku** / AutoMatch.*
-Last updated: 2026-05-31 (сессия effect chain + браузер эффектов + удаление браузера)
+Last updated: 2026-06-15 (сессия: CRT/logo/датамош в v1 + **AUTOMATCH 2 — Rust-порт**)
+
+---
+
+## TL;DR (сессии 14–15.06)
+
+Две части.
+
+**A. Доделки в v1 (`analogvfx/`, Python):**
+- Заменил легаси-эффект `crt` на `crt_monitor` везде (pipeline/GUI/smart_random, offline+live); `crt.frag` оставлен на диске; легаси `crt_*` поля в state.py сохранены для совместимости. Попутно починил `_refresh_browser` NameError и краш `motion_blur` (float в `uniform int u_samples` → `int(...)`).
+- ASCII-лого «shi o kiku» вспышкой на первом бите (превью — GL-проход поверх, экспорт — CPU поверх кадра, чтобы эффекты не съели); клик по лого в GUI → поле ввода → `[shi o kiku]` → меню-тумблер вспышки.
+- **Битстрим-датамош (Avidemux-style)** — `datamosh_bitstream.py`: bloom (удаление I-кадров) + smear (дубль P-кадров) + fine-scale; пост-обработка на экспорте + GUI-секция (`DatamoshRenderSettings`).
+- v1 запушен в приватный **github.com/catzy3/automatch** (аккаунт catzy3, git credential manager, без gh CLI).
+
+**B. AUTOMATCH 2 — новый Rust-порт (основная масса сессии):**
+- Отдельное дерево **`automatch2/`** (НЕ трогаем v1). Стек: **Rust + eframe(winit+glutin+glow) + egui**, GLSL-шейдеры из v1 переносятся дословно, ffmpeg CLI-пайп, serde.
+- **Детальная continuity — в `automatch2/PLAN.md`, раздел §0 ТЕКУЩИЙ СТАТУС** (читать первым по v2). Там же дорожная карта C0–C9, журнал, чеклист.
+- Готово: C0–C5 (окно→GFX-ядро→медиа-декод→граф эффектов→аудио/таймлайн→экспорт+нативный датамош) + бóльшая часть Phase 6 + Phase 7.
+- **26 эффектов** с глубокими параметрами (incl. порт v1 `datamosh.frag` + 8 наавторённых через Workflow и скомпилированных на GPU). Beat-sync→эффекты (`u_beat`), ModMatrix (LFO), feedback + history-ring инфра.
+- **Монтажный движок**: папка клипов → ClipPool → таймлайн → переключение клипов с **crossfade**; работает в живом превью и на экспорте.
+- **Прямой GL-рендер** в egui-вьюпорт (PaintCallback+Blitter, без CPU-readback). Битстрим-датамош (Avidemux) на экспорте + UI. Пресеты (8). Сохранение/загрузка сессий (serde JSON). Ретро-глитч тема, инспектор справа, диагностика свёрнута.
+- **Бинарь:** `automatch2/target/release/automatch2.exe` (cargo build [--release]). Env-хуки для headless-проверок: `AM2_SELFTEST` (ffmpeg-selftest'ы), `AM2_AUTOEXPORT=<path>`, `AM2_MONTAGE_DIR=<dir>`, `AM2_DATAMOSH`.
+- **Авто-цикл**: scheduled task `automatch2-progress-checkin`, cron `*/30 * * * *` (каждые 30 мин) — читает PLAN.md §0, делает шаг, коммитит/пушит.
+- **Открытое/дальше**: верхний тулбар (завершить лейаут); экспорт чанками в `update()` + прогресс-бар (GL на главном потоке → не отдельный thread); random in-points монтажа; оптимизация (Phase 8); **проверить ориентацию превью вживую** (flip=true — не подтверждено глазами).
 
 ---
 
