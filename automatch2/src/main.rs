@@ -232,9 +232,13 @@ struct AutomatchApp {
     // bitstream datamosh (Avidemux-style) applied as an EXPORT post-pass
     datamosh_bs: datamosh::DatamoshOpts,
     datamosh_bs_on: bool,
-    // (clip pool, cuts, duration, beats) — set when a montage folder is loaded,
-    // so export can build a fresh frame source.
+    // (clip pool, base-cuts, duration, beats) — set when a montage folder is loaded.
+    // Base cuts have no variation; apply_cut_variation is applied on top at build time.
     montage_plan: Option<(montage::ClipPool, Vec<timeline::Cut>, f32, Vec<f32>)>,
+    /// Fraction of cuts subdivided into 2–4 rapid sub-cuts (stutter edit).
+    stutter_frac: f32,
+    /// Fraction of cuts merged with the next cut (hold/pause).
+    hold_frac: f32,
     // loaded audio file + its live playback (kept alive so the montage plays
     // under the track). _audio_stream must outlive the sink or sound stops.
     audio_path: Option<PathBuf>,
@@ -345,6 +349,10 @@ impl AutomatchApp {
             Err(e) => (format!("FAIL — {e}"), false),
         };
         eprintln!("TIMELINE SELFTEST: {timeline_selftest}");
+        match timeline::selftest_variation() {
+            Ok(d)  => eprintln!("VARIATION SELFTEST: PASS — {d}"),
+            Err(e) => eprintln!("VARIATION SELFTEST: FAIL — {e}"),
+        }
 
         let (export_selftest, export_ok) = match (run_st, cc.gl.as_ref()) {
             (true, Some(gl)) => match export::selftest(gl) {
@@ -466,6 +474,8 @@ impl AutomatchApp {
             datamosh_bs_on: std::env::var("AM2_DATAMOSH").is_ok(), // headless verify hook
 
             montage_plan,
+            stutter_frac: 0.0,
+            hold_frac: 0.0,
             audio_path: None,
             _audio_stream: None,
             audio_sink: None,
@@ -481,6 +491,25 @@ impl AutomatchApp {
 }
 
 impl AutomatchApp {
+    /// Rebuild the montage player from the stored plan, re-applying the current
+    /// stutter/hold variation and re-syncing audio to the fresh clock. The base
+    /// cuts are recomputed from the plan's beats; the VARIED cuts are stored
+    /// back into the plan so export renders exactly what the preview shows.
+    fn rebuild_montage_from_plan(&mut self) {
+        let Some((pool, _cuts, dur, beats)) = self.montage_plan.clone() else { return };
+        let base = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
+        let varied =
+            timeline::apply_cut_variation(&base, self.stutter_frac, self.hold_frac, pool.len(), 1);
+        let n = varied.len();
+        self.montage_plan = Some((pool.clone(), varied.clone(), dur, beats));
+        let mont = montage::MontageFrameSource::new(pool, varied);
+        self.player = Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
+        self.result_tex = None;
+        self.start_montage_audio(); // re-sync the track to the rebuilt clock
+        self.export_status = format!("монтаж пересобран: {n} cuts (stutter={:.0}% hold={:.0}%)",
+            self.stutter_frac * 100.0, self.hold_frac * 100.0);
+    }
+
     /// Start the loaded track playing and lock the montage clock to it: both
     /// begin at the same instant, so `Player::playhead()` (wall clock) equals
     /// the audio position. Silently no-ops if no track or the format won't
@@ -614,6 +643,22 @@ impl eframe::App for AutomatchApp {
                         a.bpm, a.beats.len(), self.timeline_cuts, a.duration),
                 );
             }
+            // ── stutter / hold sliders (shown whenever a plan exists or always) ──
+            ui.horizontal(|ui| {
+                let stutter_changed = ui.add(
+                    egui::Slider::new(&mut self.stutter_frac, 0.0..=0.8)
+                        .text("Stutter")
+                        .step_by(0.05),
+                ).changed();
+                let hold_changed = ui.add(
+                    egui::Slider::new(&mut self.hold_frac, 0.0..=0.5)
+                        .text("Hold")
+                        .step_by(0.05),
+                ).changed();
+                if (stutter_changed || hold_changed) && self.montage_plan.is_some() {
+                    self.rebuild_montage_from_plan();
+                }
+            });
             if ui.button("📁 Папка клипов → монтаж…").clicked() {
                 if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                     let pool = montage::ClipPool::from_folder(&dir);
@@ -630,16 +675,12 @@ impl eframe::App for AutomatchApp {
                                 (beats, dur)
                             }
                         };
-                        let cuts = timeline::build_timeline(&beats, dur, 1.0, pool.len(), 1);
                         let n = pool.len();
-                        self.montage_plan =
-                            Some((pool.clone(), cuts.clone(), dur, beats.clone()));
-                        let mont = montage::MontageFrameSource::new(pool, cuts);
-                        self.player =
-                            Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
-                        self.result_tex = None;
-                        // play the loaded track in sync (shared start instant)
-                        self.start_montage_audio();
+                        // store the plan (beats drive rebuilds), then build via the
+                        // shared path: applies variation, starts synced audio.
+                        let base_cuts = timeline::build_timeline(&beats, dur, 1.0, n, 1);
+                        self.montage_plan = Some((pool, base_cuts, dur, beats));
+                        self.rebuild_montage_from_plan();
                         let sound = if self.audio_sink.is_some() { " + звук" } else { "" };
                         self.export_status = format!("монтаж: {n} клипов, {dur:.0}s{sound}");
                     }

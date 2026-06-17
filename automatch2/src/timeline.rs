@@ -97,6 +97,74 @@ pub fn build_timeline(
     cuts
 }
 
+/// Post-process a cut list to add **stutter** (rapid-fire sub-cuts) and **hold**
+/// (extended cuts that skip a clip-switch).
+///
+/// * `stutter_frac` — fraction of cuts subdivided into 2–4 rapid ping-pong sub-cuts [0,1]
+/// * `hold_frac`    — fraction of cuts merged with the next cut (same clip, longer) [0,1]
+///
+/// Hold is evaluated first per cut; if not held, stutter is evaluated. Both are
+/// deterministic for a given `seed`. Timeline duration is always preserved.
+pub fn apply_cut_variation(
+    cuts: &[Cut],
+    stutter_frac: f32,
+    hold_frac: f32,
+    n_clips: usize,
+    seed: u64,
+) -> Vec<Cut> {
+    if cuts.is_empty() || (stutter_frac <= 0.0 && hold_frac <= 0.0) {
+        return cuts.to_vec();
+    }
+    let mut state = seed.max(1) ^ 0xDEAD_BEEF_1234_5678;
+    let mut out: Vec<Cut> = Vec::with_capacity(cuts.len() + 8);
+    let mut i = 0;
+    while i < cuts.len() {
+        let c = &cuts[i];
+        let r  = (next_rand(&mut state) >> 11) as f32 / (1u64 << 53) as f32;
+        let r2 = (next_rand(&mut state) >> 11) as f32 / (1u64 << 53) as f32;
+
+        // hold: merge this cut with the next — same clip, double duration
+        if r < hold_frac && i + 1 < cuts.len() {
+            out.push(Cut {
+                t_start: c.t_start,
+                t_end: cuts[i + 1].t_end,
+                clip_idx: c.clip_idx,
+                src_in: c.src_in,
+            });
+            i += 2;
+            continue;
+        }
+
+        // stutter: subdivide into 2 or 4 rapid ping-pong sub-cuts
+        if r2 < stutter_frac {
+            let n_sub: usize = if r2 < stutter_frac * 0.25 { 4 } else { 2 };
+            let dur = c.t_end - c.t_start;
+            let sub_dur = dur / n_sub as f32;
+            // alternate between current clip and the previous one for ping-pong feel
+            let alt_clip = if i > 0 {
+                cuts[i - 1].clip_idx
+            } else {
+                (c.clip_idx + 1) % n_clips.max(2)
+            };
+            for s in 0..n_sub {
+                let clip_idx = if s % 2 == 0 { c.clip_idx } else { alt_clip };
+                out.push(Cut {
+                    t_start: c.t_start + s as f32 * sub_dur,
+                    t_end:   c.t_start + (s + 1) as f32 * sub_dur,
+                    clip_idx,
+                    src_in: c.src_in, // all sub-cuts share the in-point: stutters on the same frame
+                });
+            }
+            i += 1;
+            continue;
+        }
+
+        out.push(c.clone());
+        i += 1;
+    }
+    out
+}
+
 /// Headless check: uniform 120 BPM beats → timeline with monotonic,
 /// in-range, no-immediate-repeat cuts ending exactly at duration.
 pub fn selftest() -> Result<String, String> {
@@ -141,4 +209,42 @@ pub fn selftest() -> Result<String, String> {
         return Err("non-deterministic for same seed".into());
     }
     Ok(format!("cuts={}, deterministic, ends@{:.1}s", cuts.len(), last_end))
+}
+
+/// Verify that apply_cut_variation increases cuts on stutter, decreases on hold,
+/// and always preserves the total timeline duration.
+pub fn selftest_variation() -> Result<String, String> {
+    let duration = 4.0f32;
+    let beats: Vec<f32> = (0..8).map(|k| k as f32 * 0.5).collect();
+    let base = build_timeline(&beats, duration, 1.0, 4, 42);
+    let n = base.len();
+
+    // stutter: more cuts
+    let stuttered = apply_cut_variation(&base, 0.6, 0.0, 4, 99);
+    if stuttered.len() <= n {
+        return Err(format!("stutter: expected >{n} cuts, got {}", stuttered.len()));
+    }
+    // hold: fewer cuts
+    let held = apply_cut_variation(&base, 0.0, 0.6, 4, 99);
+    if held.len() >= n {
+        return Err(format!("hold: expected <{n} cuts, got {}", held.len()));
+    }
+    // duration preserved for both
+    let end_s = stuttered.last().unwrap().t_end;
+    let end_h = held.last().unwrap().t_end;
+    if (end_s - duration).abs() > 1e-2 {
+        return Err(format!("stutter: last end={end_s:.3}, want {duration}"));
+    }
+    if (end_h - duration).abs() > 1e-2 {
+        return Err(format!("hold: last end={end_h:.3}, want {duration}"));
+    }
+    // monotonic
+    for seq in [&stuttered, &held] {
+        for w in seq.windows(2) {
+            if w[0].t_end > w[1].t_start + 1e-3 {
+                return Err(format!("non-monotonic: {:?} → {:?}", w[0], w[1]));
+            }
+        }
+    }
+    Ok(format!("base={n} → stutter={} hold={}", stuttered.len(), held.len()))
 }
