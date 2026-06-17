@@ -14,6 +14,9 @@ rfd = "0.14"
 # session save/load (effect state + datamosh settings → JSON)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# audio playback for live montage preview; symphonia-all so it plays the same
+# formats ffmpeg analyses (mp3/wav/flac/ogg/m4a/aac/opus).
+rodio = { version = "0.20", default-features = false, features = ["symphonia-all"] }
 
 [profile.dev]
 opt-level = 1        # keep debug builds responsive for a realtime tool

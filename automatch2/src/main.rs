@@ -150,6 +150,19 @@ impl Player {
         }
     }
 
+    /// Single playback-time source (seconds): montage uses the wall clock
+    /// (== audio playhead, since both start together), single-clip uses decoded
+    /// frame count. Feeds BOTH the montage cut position and the beat pulse so
+    /// they can't drift apart.
+    fn playhead(&self) -> f32 {
+        if self.montage.is_some() {
+            let t = self.clock.elapsed().as_secs_f32();
+            if self.duration > 0.0 { t % self.duration } else { t }
+        } else {
+            self.frame_idx as f32 / self.fps.max(1.0)
+        }
+    }
+
     /// Decode the next frame if it's time. Returns true when `buf` holds a fresh,
     /// correctly-sized frame this tick.
     fn advance_decode(&mut self) -> bool {
@@ -161,10 +174,7 @@ impl Player {
 
         // ── montage mode: pull from the timeline-driven clip source ──
         if self.montage.is_some() {
-            let mut t = self.clock.elapsed().as_secs_f32();
-            if self.duration > 0.0 {
-                t %= self.duration;
-            }
+            let t = self.playhead();
             let got = self.montage.as_mut().unwrap().frame_at(t, &mut self.buf);
             if got {
                 if let Some((w, h)) = self.montage.as_ref().unwrap().dimensions() {
@@ -225,6 +235,11 @@ struct AutomatchApp {
     // (clip pool, cuts, duration, beats) — set when a montage folder is loaded,
     // so export can build a fresh frame source.
     montage_plan: Option<(montage::ClipPool, Vec<timeline::Cut>, f32, Vec<f32>)>,
+    // loaded audio file + its live playback (kept alive so the montage plays
+    // under the track). _audio_stream must outlive the sink or sound stops.
+    audio_path: Option<PathBuf>,
+    _audio_stream: Option<rodio::OutputStream>,
+    audio_sink: Option<rodio::Sink>,
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     blitter: Option<gfx::Blitter>,
@@ -451,6 +466,9 @@ impl AutomatchApp {
             datamosh_bs_on: std::env::var("AM2_DATAMOSH").is_ok(), // headless verify hook
 
             montage_plan,
+            audio_path: None,
+            _audio_stream: None,
+            audio_sink: None,
             player,
             chain,
             blitter,
@@ -458,6 +476,40 @@ impl AutomatchApp {
             result_size: [0, 0],
             start: Instant::now(),
             frames: 0,
+        }
+    }
+}
+
+impl AutomatchApp {
+    /// Start the loaded track playing and lock the montage clock to it: both
+    /// begin at the same instant, so `Player::playhead()` (wall clock) equals
+    /// the audio position. Silently no-ops if no track or the format won't
+    /// decode (montage then runs silent, as before).
+    fn start_montage_audio(&mut self) {
+        self.audio_sink = None; // stop any previous track
+        let Some(path) = self.audio_path.clone() else { return };
+        let started = (|| -> Result<(rodio::OutputStream, rodio::Sink), String> {
+            use rodio::Source;
+            let (stream, handle) =
+                rodio::OutputStream::try_default().map_err(|e| e.to_string())?;
+            let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
+            let file = std::io::BufReader::new(std::fs::File::open(&path).map_err(|e| e.to_string())?);
+            let src = rodio::Decoder::new(file).map_err(|e| e.to_string())?;
+            sink.append(src.repeat_infinite()); // loops with the montage clock
+            Ok((stream, sink))
+        })();
+        match started {
+            Ok((stream, sink)) => {
+                self._audio_stream = Some(stream);
+                self.audio_sink = Some(sink);
+                // align: restart the montage clock with playback
+                if let Some(p) = self.player.as_mut() {
+                    p.clock = Instant::now();
+                    p.last_advance = Instant::now();
+                    p.frame_idx = 0;
+                }
+            }
+            Err(e) => eprintln!("audio playback: {e} (montage runs silent)"),
         }
     }
 }
@@ -486,7 +538,7 @@ impl eframe::App for AutomatchApp {
                     if a.duration <= 0.0 || a.beats.is_empty() {
                         return 0.0;
                     }
-                    let pt = (p.frame_idx as f32 / p.fps) % a.duration;
+                    let pt = p.playhead() % a.duration;
                     let mut last = -1.0f32;
                     for &b in &a.beats {
                         if b <= pt {
@@ -549,6 +601,7 @@ impl eframe::App for AutomatchApp {
                             let cuts = timeline::build_timeline(&a.beats, a.duration, 1.0, 8, 1);
                             self.timeline_cuts = cuts.len();
                             self.analysis = Some(a);
+                            self.audio_path = Some(path); // kept for live playback
                         }
                         Err(e) => eprintln!("analyze audio: {e}"),
                     }
@@ -585,7 +638,10 @@ impl eframe::App for AutomatchApp {
                         self.player =
                             Some(Player::open_montage(media::ffmpeg_path(), mont, dur, 30.0));
                         self.result_tex = None;
-                        self.export_status = format!("монтаж: {n} клипов, {dur:.0}s");
+                        // play the loaded track in sync (shared start instant)
+                        self.start_montage_audio();
+                        let sound = if self.audio_sink.is_some() { " + звук" } else { "" };
+                        self.export_status = format!("монтаж: {n} клипов, {dur:.0}s{sound}");
                     }
                 }
             }
