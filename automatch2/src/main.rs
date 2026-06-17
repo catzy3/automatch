@@ -101,7 +101,9 @@ struct Player {
     reader: Option<media::VideoReader>,
     montage: Option<montage::MontageFrameSource>, // Some → beat-sync montage mode
     duration: f32,                                // montage total length
-    clock: Instant,                               // montage playback clock
+    clock: Instant,                               // start of the current play span
+    base: f32,                                    // playhead accumulated before this span
+    paused: bool,
     buf: Vec<u8>,
     size: [usize; 2],
     last_advance: Instant,
@@ -120,6 +122,8 @@ impl Player {
             montage: None,
             duration: 0.0,
             clock: Instant::now(),
+            base: 0.0,
+            paused: false,
             buf: Vec::new(),
             size,
             last_advance: Instant::now(),
@@ -142,6 +146,8 @@ impl Player {
             montage: Some(mont),
             duration,
             clock: Instant::now(),
+            base: 0.0,
+            paused: false,
             buf: Vec::new(),
             size: [0, 0],
             last_advance: Instant::now(),
@@ -156,16 +162,39 @@ impl Player {
     /// they can't drift apart.
     fn playhead(&self) -> f32 {
         if self.montage.is_some() {
-            let t = self.clock.elapsed().as_secs_f32();
-            if self.duration > 0.0 { t % self.duration } else { t }
+            let raw = self.base
+                + if self.paused { 0.0 } else { self.clock.elapsed().as_secs_f32() };
+            if self.duration > 0.0 { raw % self.duration } else { raw }
         } else {
             self.frame_idx as f32 / self.fps.max(1.0)
         }
     }
 
+    /// Pause/resume the playback clock (video freezes; caller pauses audio too).
+    fn set_paused(&mut self, paused: bool) {
+        if paused == self.paused {
+            return;
+        }
+        if paused {
+            self.base += self.clock.elapsed().as_secs_f32();
+        } else {
+            self.clock = Instant::now();
+        }
+        self.paused = paused;
+    }
+
+    /// Jump the montage playhead to `t` seconds (next decode pulls that cut).
+    fn seek(&mut self, t: f32) {
+        self.base = t.max(0.0);
+        self.clock = Instant::now();
+    }
+
     /// Decode the next frame if it's time. Returns true when `buf` holds a fresh,
     /// correctly-sized frame this tick.
     fn advance_decode(&mut self) -> bool {
+        if self.paused {
+            return false; // frozen frame while paused
+        }
         let dt = 1.0 / self.fps.max(1.0);
         if self.last_advance.elapsed().as_secs_f32() < dt {
             return false;
@@ -510,6 +539,29 @@ impl AutomatchApp {
             self.stutter_frac * 100.0, self.hold_frac * 100.0);
     }
 
+    /// Toggle play/pause for both video clock and audio together.
+    fn toggle_play_pause(&mut self) {
+        let want_paused = self.player.as_ref().map(|p| !p.paused);
+        if let (Some(p), Some(want)) = (self.player.as_mut(), want_paused) {
+            p.set_paused(want);
+        }
+        if let (Some(s), Some(want)) = (self.audio_sink.as_ref(), want_paused) {
+            if want { s.pause() } else { s.play() }
+        }
+    }
+
+    /// Seek video clock + audio to `t` seconds (kept in lockstep).
+    fn seek_to(&mut self, t: f32) {
+        let dur = self.player.as_ref().map_or(0.0, |p| p.duration);
+        if let Some(p) = self.player.as_mut() {
+            p.seek(t);
+        }
+        if let Some(s) = self.audio_sink.as_ref() {
+            let pos = if dur > 0.0 { t.rem_euclid(dur) } else { t.max(0.0) };
+            let _ = s.try_seek(std::time::Duration::from_secs_f32(pos));
+        }
+    }
+
     /// Start the loaded track playing and lock the montage clock to it: both
     /// begin at the same instant, so `Player::playhead()` (wall clock) equals
     /// the audio position. Silently no-ops if no track or the format won't
@@ -536,6 +588,8 @@ impl AutomatchApp {
                     p.clock = Instant::now();
                     p.last_advance = Instant::now();
                     p.frame_idx = 0;
+                    p.base = 0.0;
+                    p.paused = false;
                 }
             }
             Err(e) => eprintln!("audio playback: {e} (montage runs silent)"),
@@ -547,6 +601,11 @@ impl eframe::App for AutomatchApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.frames += 1;
         let time = self.start.elapsed().as_secs_f32();
+
+        // spacebar = play/pause (live transport convenience)
+        if self.player.is_some() && ctx.input(|i| i.key_pressed(egui::Key::Space)) {
+            self.toggle_play_pause();
+        }
 
         // decode → effect chain → texture
         let new = self.player.as_mut().map(|p| p.advance_decode()).unwrap_or(false);
@@ -869,10 +928,21 @@ impl eframe::App for AutomatchApp {
         });
 
         egui::TopBottomPanel::bottom("timeline").min_height(86.0).show(ctx, |ui| {
-            ui.label("Таймлайн (онсеты + биты)");
+            ui.horizontal(|ui| {
+                let (paused, ph, dur) = self
+                    .player
+                    .as_ref()
+                    .map_or((true, 0.0, 0.0), |p| (p.paused, p.playhead(), p.duration));
+                let icon = if paused { "▶" } else { "⏸" };
+                if ui.add_enabled(self.player.is_some(), egui::Button::new(icon)).clicked() {
+                    self.toggle_play_pause();
+                }
+                ui.colored_label(C_DIM, format!("{ph:05.1} / {dur:05.1}s"));
+                ui.label("Таймлайн (онсеты + биты) — клик = перемотка");
+            });
             let (resp, painter) = ui.allocate_painter(
                 egui::vec2(ui.available_width(), 60.0),
-                egui::Sense::hover(),
+                egui::Sense::click(),
             );
             let rect = resp.rect;
             painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(6, 6, 10));
@@ -908,6 +978,27 @@ impl eframe::App for AutomatchApp {
                         egui::FontId::monospace(12.0),
                         egui::Color32::from_rgb(120, 120, 140),
                     );
+                }
+            }
+            // playhead marker (green) at the current position
+            if let (Some(p), Some(a)) = (self.player.as_ref(), self.analysis.as_ref()) {
+                if a.duration > 0.0 {
+                    let fx = (p.playhead() / a.duration).clamp(0.0, 1.0);
+                    let px = rect.left() + fx * rect.width();
+                    painter.line_segment(
+                        [egui::pos2(px, rect.top()), egui::pos2(px, rect.bottom())],
+                        egui::Stroke::new(2.0, C_GREEN),
+                    );
+                }
+            }
+            // click on the strip → seek both video and audio there
+            if resp.clicked() {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    let dur = self.analysis.as_ref().map_or(0.0, |a| a.duration);
+                    if dur > 0.0 {
+                        let frac = ((pos.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+                        self.seek_to(frac * dur);
+                    }
                 }
             }
         });
