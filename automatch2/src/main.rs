@@ -273,6 +273,7 @@ struct AutomatchApp {
     audio_path: Option<PathBuf>,
     _audio_stream: Option<rodio::OutputStream>,
     audio_sink: Option<rodio::Sink>,
+    audio_status: String, // visible audio state (playing / no track / device error)
     player: Option<Player>,
     chain: Option<effects::EffectChain>,
     blitter: Option<gfx::Blitter>,
@@ -508,6 +509,7 @@ impl AutomatchApp {
             audio_path: None,
             _audio_stream: None,
             audio_sink: None,
+            audio_status: String::new(),
             player,
             chain,
             blitter,
@@ -568,7 +570,10 @@ impl AutomatchApp {
     /// decode (montage then runs silent, as before).
     fn start_montage_audio(&mut self) {
         self.audio_sink = None; // stop any previous track
-        let Some(path) = self.audio_path.clone() else { return };
+        let Some(path) = self.audio_path.clone() else {
+            self.audio_status = "♪ нет трека — жми 🎵".to_owned();
+            return;
+        };
         let started = (|| -> Result<(rodio::OutputStream, rodio::Sink), String> {
             use rodio::Source;
             let (stream, handle) =
@@ -583,6 +588,9 @@ impl AutomatchApp {
             Ok((stream, sink)) => {
                 self._audio_stream = Some(stream);
                 self.audio_sink = Some(sink);
+                let name = path.file_name().map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                self.audio_status = format!("♪ играет: {name}");
                 // align: restart the montage clock with playback
                 if let Some(p) = self.player.as_mut() {
                     p.clock = Instant::now();
@@ -592,7 +600,10 @@ impl AutomatchApp {
                     p.paused = false;
                 }
             }
-            Err(e) => eprintln!("audio playback: {e} (montage runs silent)"),
+            Err(e) => {
+                eprintln!("audio playback: {e} (montage runs silent)");
+                self.audio_status = format!("♪ аудио недоступно: {e}");
+            }
         }
     }
 }
@@ -690,6 +701,11 @@ impl eframe::App for AutomatchApp {
                             self.timeline_cuts = cuts.len();
                             self.analysis = Some(a);
                             self.audio_path = Some(path); // kept for live playback
+                            // if a montage is already running, start sound now
+                            // (so loading the track after the clips also works)
+                            if self.montage_plan.is_some() {
+                                self.start_montage_audio();
+                            }
                         }
                         Err(e) => eprintln!("analyze audio: {e}"),
                     }
@@ -938,7 +954,11 @@ impl eframe::App for AutomatchApp {
                     self.toggle_play_pause();
                 }
                 ui.colored_label(C_DIM, format!("{ph:05.1} / {dur:05.1}s"));
-                ui.label("Таймлайн (онсеты + биты) — клик = перемотка");
+                ui.label("Таймлайн — клик = перемотка");
+                if !self.audio_status.is_empty() {
+                    let col = if self.audio_status.contains("играет") { C_GREEN } else { C_MAGENTA };
+                    ui.colored_label(col, &self.audio_status);
+                }
             });
             let (resp, painter) = ui.allocate_painter(
                 egui::vec2(ui.available_width(), 60.0),

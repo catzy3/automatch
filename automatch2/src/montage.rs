@@ -70,13 +70,25 @@ pub struct MontageFrameSource {
 impl MontageFrameSource {
     pub fn new(pool: ClipPool, mut cuts: Vec<Cut>) -> Self {
         let ffmpeg = ffmpeg_path();
-        // canvas = first clip's native size (even dims), else a sane default
-        let canvas = pool
+        // canvas = the highest-resolution clip (not just the first), capped to
+        // 1080p so the preview stays sharp without melting the main-thread
+        // decoder. The first clip being a low-res phone clip used to drag the
+        // whole montage down to its size → blurry/pixelated output.
+        let best = pool
             .paths
-            .first()
-            .and_then(|p| probe_dimensions(&ffmpeg, p).ok())
-            .map(|(w, h)| (w / 2 * 2, h / 2 * 2))
-            .unwrap_or((1280, 720));
+            .iter()
+            .filter_map(|p| probe_dimensions(&ffmpeg, p).ok())
+            .filter(|&(w, h)| w >= 2 && h >= 2)
+            .max_by_key(|&(w, h)| w as i64 * h as i64);
+        let canvas = match best {
+            Some((w, h)) => {
+                let scale = (1920.0 / w as f32).min(1080.0 / h as f32).min(1.0);
+                let cw = ((w as f32 * scale) as i32 / 2 * 2).max(2);
+                let ch = ((h as f32 * scale) as i32 / 2 * 2).max(2);
+                (cw, ch)
+            }
+            None => (1280, 720),
+        };
         // probe each clip's length so we can pick safe random in-points
         let clip_durs: Vec<f32> = pool
             .paths
